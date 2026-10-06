@@ -18,6 +18,10 @@ on:
         required: false
         default: false
         type: boolean
+    secrets:
+      automation_dispatch_token:
+        description: Token with Contents write access to zeppe-lin/automation
+        required: true
 
 permissions:
   contents: write
@@ -53,7 +57,7 @@ jobs:
           news: ${{ inputs.news_path }}
           output: ${{ runner.temp }}/release-notes.md
 
-      - name: Create GitHub release
+      - name: Publish GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -69,16 +73,51 @@ jobs:
             title=$RELEASE_TAG
           fi
 
-          args=(
-            release create "$RELEASE_TAG"
-            --verify-tag
-            --fail-on-no-commits
-            --title "$title"
-            --notes-file "$RELEASE_NOTES"
-          )
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            printf 'release %s is already published; leaving it unchanged\n' "$RELEASE_TAG"
+          else
+            args=(
+              release create "$RELEASE_TAG"
+              --verify-tag
+              --fail-on-no-commits
+              --title "$title"
+              --notes-file "$RELEASE_NOTES"
+            )
 
-          if [ "$RELEASE_PRERELEASE" = "true" ]; then
-            args+=(--prerelease)
+            if [ "$RELEASE_PRERELEASE" = "true" ]; then
+              args+=(--prerelease)
+            fi
+
+            gh "${args[@]}"
           fi
 
-          gh "${args[@]}"
+      - name: Queue release announcement
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.automation_dispatch_token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          python3 - "$SOURCE_REPOSITORY" "$RELEASE_TAG" >"$RUNNER_TEMP/release-dispatch.json" <<'PY'
+          import json
+          import sys
+
+          repository, tag = sys.argv[1:]
+          json.dump(
+              {
+                  "event_type": "release-published",
+                  "client_payload": {
+                      "repository": repository,
+                      "tag": tag,
+                  },
+              },
+              sys.stdout,
+          )
+          PY
+
+          gh api \
+            --method POST \
+            repos/zeppe-lin/automation/dispatches \
+            --input "$RUNNER_TEMP/release-dispatch.json"

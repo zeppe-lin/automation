@@ -1,0 +1,279 @@
+name: Deliver release announcement
+
+on:
+  repository_dispatch:
+    types:
+      - release-published
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Source repository, for example zeppe-lin/pkgman
+        required: true
+        type: string
+      tag:
+        description: Published release tag, for example v6.3
+        required: true
+        type: string
+      deliver:
+        description: Perform external delivery instead of dry-run rendering
+        required: false
+        default: false
+        type: boolean
+      force_replay:
+        description: Replay unresolved destinations explicitly
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-delivery
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: prepare release announcement
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout automation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Collect published release
+        env:
+          DISPATCH_REPOSITORY: ${{ github.event.client_payload.repository }}
+          DISPATCH_TAG: ${{ github.event.client_payload.tag }}
+          MANUAL_REPOSITORY: ${{ inputs.repository }}
+          MANUAL_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_EVENT_NAME" = repository_dispatch ]; then
+            repository=$DISPATCH_REPOSITORY
+            tag=$DISPATCH_TAG
+          else
+            repository=$MANUAL_REPOSITORY
+            tag=$MANUAL_TAG
+          fi
+
+          install -d "$RUNNER_TEMP/release-delivery"
+          python3 libexec/collect-github-release.py \
+            "$repository" \
+            "$tag" \
+            "$RUNNER_TEMP/release-manifest.json"
+          python3 libexec/render-release.py \
+            "$RUNNER_TEMP/release-manifest.json" \
+            "$RUNNER_TEMP/release-delivery"
+
+      - name: Upload rendered delivery artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-delivery-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-delivery
+          if-no-files-found: error
+          retention-days: 90
+
+  mail-user:
+    name: deliver user-list release announcement
+    needs: prepare
+    if: ${{ github.event_name == 'repository_dispatch' || inputs.deliver == true }}
+    runs-on: ${{ fromJSON(vars.DELIVERY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout automation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Download rendered delivery artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-delivery-${{ github.run_id }}
+          path: release-delivery
+
+      - name: Deliver user-list mail
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FORCE_REPLAY: ${{ github.event_name == 'workflow_dispatch' && inputs.force_replay == true }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_SECURITY: ${{ vars.SMTP_SECURITY }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+          MAIL_TO: ${{ vars.MAIL_USER_TO }}
+        run: |
+          set -euo pipefail
+          : "${SMTP_HOST:?SMTP_HOST repository variable is required}"
+          : "${MAIL_FROM:?MAIL_FROM repository variable is required}"
+          : "${MAIL_TO:?MAIL_USER_TO repository variable is required}"
+          if [ -n "${SMTP_USERNAME:-}" ] && [ -z "${SMTP_PASSWORD:-}" ]; then
+            printf 'error: SMTP_PASSWORD secret is required with SMTP_USERNAME\n' >&2
+            exit 1
+          fi
+
+          mapfile -t release < <(python3 - <<'PY'
+          import json
+          with open('release-delivery/manifest.json', encoding='utf-8') as stream:
+              manifest = json.load(stream)
+          print(manifest['repository'])
+          print(manifest['tag'])
+          PY
+          )
+
+          claim=(python3 libexec/delivery-state.py claim "${release[0]}" "${release[1]}" mail-user)
+          if [ "$FORCE_REPLAY" = true ]; then
+            claim+=(--force)
+          fi
+
+          set +e
+          "${claim[@]}"
+          status=$?
+          set -e
+          case $status in
+            0) ;;
+            20) exit 0 ;;
+            21) exit 1 ;;
+            *) exit "$status" ;;
+          esac
+
+          python3 libexec/send-mail.py release-delivery/mail-user.json
+          python3 libexec/delivery-state.py delivered "${release[0]}" "${release[1]}" mail-user
+
+  mail-dev:
+    name: deliver development-list release announcement
+    needs:
+      - prepare
+      - mail-user
+    if: ${{ always() && needs.prepare.result == 'success' && (github.event_name == 'repository_dispatch' || inputs.deliver == true) }}
+    runs-on: ${{ fromJSON(vars.DELIVERY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout automation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Download rendered delivery artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-delivery-${{ github.run_id }}
+          path: release-delivery
+
+      - name: Deliver development-list mail
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FORCE_REPLAY: ${{ github.event_name == 'workflow_dispatch' && inputs.force_replay == true }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_SECURITY: ${{ vars.SMTP_SECURITY }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+          MAIL_TO: ${{ vars.MAIL_DEV_TO }}
+        run: |
+          set -euo pipefail
+          : "${SMTP_HOST:?SMTP_HOST repository variable is required}"
+          : "${MAIL_FROM:?MAIL_FROM repository variable is required}"
+          : "${MAIL_TO:?MAIL_DEV_TO repository variable is required}"
+          if [ -n "${SMTP_USERNAME:-}" ] && [ -z "${SMTP_PASSWORD:-}" ]; then
+            printf 'error: SMTP_PASSWORD secret is required with SMTP_USERNAME\n' >&2
+            exit 1
+          fi
+
+          mapfile -t release < <(python3 - <<'PY'
+          import json
+          with open('release-delivery/manifest.json', encoding='utf-8') as stream:
+              manifest = json.load(stream)
+          print(manifest['repository'])
+          print(manifest['tag'])
+          PY
+          )
+
+          claim=(python3 libexec/delivery-state.py claim "${release[0]}" "${release[1]}" mail-dev)
+          if [ "$FORCE_REPLAY" = true ]; then
+            claim+=(--force)
+          fi
+
+          set +e
+          "${claim[@]}"
+          status=$?
+          set -e
+          case $status in
+            0) ;;
+            20) exit 0 ;;
+            21) exit 1 ;;
+            *) exit "$status" ;;
+          esac
+
+          python3 libexec/send-mail.py release-delivery/mail-dev.json
+          python3 libexec/delivery-state.py delivered "${release[0]}" "${release[1]}" mail-dev
+
+  irc:
+    name: deliver IRC release announcement
+    needs:
+      - prepare
+      - mail-dev
+    if: ${{ always() && needs.prepare.result == 'success' && (github.event_name == 'repository_dispatch' || inputs.deliver == true) }}
+    runs-on: ${{ fromJSON(vars.DELIVERY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout automation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Download rendered delivery artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-delivery-${{ github.run_id }}
+          path: release-delivery
+
+      - name: Deliver IRC announcement
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FORCE_REPLAY: ${{ github.event_name == 'workflow_dispatch' && inputs.force_replay == true }}
+          IRC_HOST: ${{ vars.IRC_HOST }}
+          IRC_PORT: ${{ vars.IRC_PORT }}
+          IRC_TLS: ${{ vars.IRC_TLS }}
+          IRC_CHANNEL: ${{ vars.IRC_CHANNEL }}
+          IRC_NICK: ${{ vars.IRC_NICK }}
+          IRC_USERNAME: ${{ vars.IRC_USERNAME }}
+          IRC_SASL_USERNAME: ${{ vars.IRC_SASL_USERNAME }}
+          IRC_SASL_PASSWORD: ${{ secrets.IRC_SASL_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${IRC_HOST:?IRC_HOST repository variable is required}"
+          : "${IRC_CHANNEL:?IRC_CHANNEL repository variable is required}"
+          : "${IRC_NICK:?IRC_NICK repository variable is required}"
+          : "${IRC_SASL_PASSWORD:?IRC_SASL_PASSWORD secret is required}"
+
+          mapfile -t release < <(python3 - <<'PY'
+          import json
+          with open('release-delivery/manifest.json', encoding='utf-8') as stream:
+              manifest = json.load(stream)
+          print(manifest['repository'])
+          print(manifest['tag'])
+          PY
+          )
+
+          claim=(python3 libexec/delivery-state.py claim "${release[0]}" "${release[1]}" irc)
+          if [ "$FORCE_REPLAY" = true ]; then
+            claim+=(--force)
+          fi
+
+          set +e
+          "${claim[@]}"
+          status=$?
+          set -e
+          case $status in
+            0) ;;
+            20) exit 0 ;;
+            21) exit 1 ;;
+            *) exit "$status" ;;
+          esac
+
+          python3 libexec/send-irc.py release-delivery/irc.txt
+          python3 libexec/delivery-state.py delivered "${release[0]}" "${release[1]}" irc
