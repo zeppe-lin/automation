@@ -57,9 +57,14 @@ permissions:
 jobs:
   release:
     uses: zeppe-lin/automation/.github/workflows/release-from-news.yml@<reviewed-commit-sha>
+    secrets:
+      automation_dispatch_token: ${{ secrets.AUTOMATION_DISPATCH_TOKEN }}
 ```
 
 Pin the reusable workflow to a reviewed immutable commit SHA in production.
+The dispatch token should be a fine-grained token scoped to
+`zeppe-lin/automation` with `Contents: write`; source repositories do not need
+SMTP or IRC credentials.
 The called workflow cannot elevate permissions beyond the caller, so the caller
 must grant `contents: write` for GitHub release creation.
 
@@ -87,6 +92,12 @@ revision as the reusable workflow.
 The workflow treats tag names, paths, and release titles as data.  Values are
 passed through environment variables or action inputs rather than interpolated
 into executable shell source.
+
+After the GitHub Release has been published, the workflow sends a
+`release-published` repository-dispatch event to `zeppe-lin/automation`.  The
+central delivery workflow re-fetches the release and owns mailing-list and IRC
+delivery.  See `release-delivery.md` for the transport, queue, and replay
+contract.
 
 ## Local validation
 
