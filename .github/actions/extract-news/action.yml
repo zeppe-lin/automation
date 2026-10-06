@@ -1,0 +1,30 @@
+name: Extract NEWS release notes
+description: Extract one tagged release section from NEWS.md
+
+inputs:
+  tag:
+    description: Release tag, including the leading v
+    required: true
+  news:
+    description: Path to NEWS.md in the caller repository
+    required: false
+    default: NEWS.md
+  output:
+    description: Path to write the extracted release notes
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Extract release section
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.tag }}
+        NEWS_PATH: ${{ inputs.news }}
+        OUTPUT_PATH: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        python3 "$GITHUB_ACTION_PATH/extract-news.py" \
+          "$RELEASE_TAG" \
+          "$NEWS_PATH" \
+          "$OUTPUT_PATH"
