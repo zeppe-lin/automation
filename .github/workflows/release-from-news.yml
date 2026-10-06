@@ -1,0 +1,84 @@
+name: Release from NEWS
+
+on:
+  workflow_call:
+    inputs:
+      news_path:
+        description: Path to the repository NEWS file
+        required: false
+        default: NEWS.md
+        type: string
+      release_name:
+        description: Release title; defaults to the tag name
+        required: false
+        default: ""
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify tag context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ] || [ -z "${GITHUB_REF_NAME:-}" ]; then
+            printf 'error: release workflow requires a tag ref\n' >&2
+            exit 1
+          fi
+
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Extract release notes
+        uses: $/.github/actions/extract-news
+        with:
+          tag: ${{ github.ref_name }}
+          news: ${{ inputs.news_path }}
+          output: ${{ runner.temp }}/release-notes.md
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_NAME: ${{ inputs.release_name }}
+          RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_NOTES: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+
+          title=$RELEASE_NAME
+          if [ -z "$title" ]; then
+            title=$RELEASE_TAG
+          fi
+
+          args=(
+            release create "$RELEASE_TAG"
+            --verify-tag
+            --fail-on-no-commits
+            --title "$title"
+            --notes-file "$RELEASE_NOTES"
+          )
+
+          if [ "$RELEASE_PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+
+          gh "${args[@]}"
