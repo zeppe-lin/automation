@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Extract the release body matching one v-prefixed tag from NEWS.md.
+
+This command is a pure repository-local projection: it reads a NEWS file and
+writes one release-note file. It has no network access and consumes no secrets.
+"""
+
 
 import re
 import sys

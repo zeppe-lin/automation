@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Maintain durable release-delivery claims in Git refs.
+
+A claim is written before external I/O and a delivered marker only after the
+transport reports success. Unresolved claims require explicit operator replay.
+"""
+
 
 import json
 import os

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Render a normalized release manifest for each delivery destination.
+
+Rendering is deterministic and performs no network I/O. Rendered artifacts are
+public release data and must never contain transport credentials.
+"""
+
 
 import json
 import re

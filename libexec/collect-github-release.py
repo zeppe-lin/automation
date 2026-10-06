@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Collect one published Zeppe-Lin GitHub Release into a normalized manifest.
+
+Caller-supplied dispatch fields identify only the repository and tag. Release
+prose is fetched again from GitHub so the published release remains delivery
+authority.
+"""
+
 
 import json
 import os

@@ -102,7 +102,7 @@ Configure these repository variables on `zeppe-lin/automation`:
 DELIVERY_RUNNER     # optional JSON runs-on value
 SMTP_HOST
 SMTP_PORT          # default in the client: 465
-SMTP_SECURITY      # ssl, starttls, or plain
+SMTP_SECURITY      # ssl or starttls
 MAIL_FROM
 MAIL_USER_TO
 MAIL_DEV_TO
@@ -130,7 +130,6 @@ Configure these repository variables:
 ```text
 IRC_HOST
 IRC_PORT           # default in the client: 6697
-IRC_TLS            # default in the client: true
 IRC_CHANNEL
 IRC_NICK
 IRC_USERNAME       # optional; defaults to IRC_NICK
@@ -168,6 +167,34 @@ jobs:
 SMTP and IRC credentials stay in `zeppe-lin/automation` and are never exposed
 to source repositories.
 
+
+## Credential migration
+
+The legacy shared workflows currently use organization secrets with
+provider-specific names. Keep them in place until every caller has migrated.
+For the new central pipeline, create repository secrets on
+`zeppe-lin/automation` with transport-semantic names:
+
+| Legacy organization secret | New automation repository secret |
+| -------------------------- | -------------------------------- |
+| `GMAIL_USERNAME`           | `SMTP_USERNAME`                  |
+| `GMAIL_APP_PASSWORD`       | `SMTP_PASSWORD`                  |
+| `LIBERACHAT_PASSWORD`      | `IRC_SASL_PASSWORD`              |
+
+GitHub does not reveal an existing secret value, so a value cannot be copied
+server-side after it has been stored. Re-enter the original credential from its
+credential store, or rotate it and store the new value. Do not delete the
+legacy organization secret until its final `.github-shared-workflows` caller is
+retired.
+
+The dispatch credential is different. `AUTOMATION_DISPATCH_TOKEN` belongs at
+the organization level because source repositories need it, but during
+migration its visibility should be restricted to the selected repositories
+that have moved to the new release workflow.
+
+SMTP and IRC credentials should not be organization secrets in the new design.
+Only the central automation repository needs them.
+
 ## Local tests
 
 Run the release pipeline tests with:
@@ -183,3 +210,9 @@ python3 -m unittest \
 The suite covers release normalization, separate renderers, UTF-8 bounded IRC
 output, stable mail identity, an in-process IRC SASL exchange, and delivery
 ledger behavior.
+
+## Security and internal command contracts
+
+The credential, logging, artifact, and replay rules are normative in
+`docs/security.md`. Command-line and environment contracts for the internal
+helpers are documented in `docs/internal-commands.md`.
