@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Submit one rendered release announcement to IRC over TLS and SASL PLAIN.
+
+The SASL credential is read only from the environment. The client never logs
+protocol traffic because the AUTHENTICATE payload is a transformed credential
+which GitHub's ordinary secret masking cannot be relied on to recognize.
+"""
 
 import base64
 import os
@@ -24,16 +30,14 @@ def env_default(name, default):
     return value or default
 
 
-def bool_env(name, default=True):
-    value = os.environ.get(name)
-    if value is None or not value.strip():
-        return default
-    value = value.strip().lower()
-    if value in {"1", "true", "yes", "on"}:
-        return True
-    if value in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(f"{name} must be true or false")
+def parse_port(name, value):
+    try:
+        port = int(value)
+    except ValueError as error:
+        raise ValueError(f"{name} must be an integer") from error
+    if not 1 <= port <= 65535:
+        raise ValueError(f"{name} must be between 1 and 65535")
+    return port
 
 
 def irc_token(name, value):
@@ -50,12 +54,10 @@ def parse_command(line):
 
 
 class IRCClient:
-    def __init__(self, sock, nick, channel, sasl_user, sasl_password):
+    def __init__(self, sock, nick, channel):
         self.sock = sock
         self.nick = nick
         self.channel = channel
-        self.sasl_user = sasl_user
-        self.sasl_password = sasl_password
         self.buffer = b""
 
     def send_line(self, line):
@@ -94,7 +96,7 @@ class IRCClient:
             if command in accepted:
                 return line
 
-    def authenticate(self, username):
+    def authenticate(self, username, sasl_user, sasl_password):
         deadline = time.monotonic() + 20
         self.send_line("CAP LS 302")
         self.send_line(f"NICK {self.nick}")
@@ -121,7 +123,7 @@ class IRCClient:
         self.wait_for({"AUTHENTICATE"}, deadline)
 
         auth = base64.b64encode(
-            f"\0{self.sasl_user}\0{self.sasl_password}".encode("utf-8")
+            f"\0{sasl_user}\0{sasl_password}".encode("utf-8")
         ).decode("ascii")
         for offset in range(0, len(auth), 400):
             self.send_line("AUTHENTICATE " + auth[offset : offset + 400])
@@ -161,28 +163,25 @@ class IRCClient:
         self.send_line("QUIT :release announcement submitted")
 
 
-def connect(host, port, use_tls):
+def connect(host, port):
     sock = socket.create_connection((host, port), timeout=20)
-    if use_tls:
-        context = ssl.create_default_context()
-        sock = context.wrap_socket(sock, server_hostname=host)
-    return sock
+    context = ssl.create_default_context()
+    return context.wrap_socket(sock, server_hostname=host)
 
 
 def send(message):
     host = required("IRC_HOST")
-    port = int(env_default("IRC_PORT", "6697"))
+    port = parse_port("IRC_PORT", env_default("IRC_PORT", "6697"))
     channel = irc_token("IRC_CHANNEL", required("IRC_CHANNEL"))
     nick = irc_token("IRC_NICK", required("IRC_NICK"))
     username = irc_token("IRC_USERNAME", env_default("IRC_USERNAME", nick))
     sasl_user = irc_token("IRC_SASL_USERNAME", env_default("IRC_SASL_USERNAME", nick))
     sasl_password = required("IRC_SASL_PASSWORD")
-    use_tls = bool_env("IRC_TLS", True)
 
-    sock = connect(host, port, use_tls)
+    sock = connect(host, port)
     try:
-        client = IRCClient(sock, nick, channel, sasl_user, sasl_password)
-        client.authenticate(username)
+        client = IRCClient(sock, nick, channel)
+        client.authenticate(username, sasl_user, sasl_password)
         client.publish(message)
     finally:
         sock.close()
@@ -200,8 +199,17 @@ def main():
         if "\r" in message or "\n" in message:
             raise ValueError("IRC message must contain exactly one line")
         send(message)
-    except (OSError, ValueError, ConnectionError, TimeoutError) as error:
+    except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 1
+    except TimeoutError:
+        print("error: IRC server response timed out", file=sys.stderr)
+        return 1
+    except ConnectionError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except OSError:
+        print("error: IRC connection or TLS failure", file=sys.stderr)
         return 1
 
     print("submitted IRC announcement")

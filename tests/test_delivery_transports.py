@@ -2,6 +2,7 @@
 
 import importlib.util
 import socket
+import smtplib
 import threading
 import unittest
 from pathlib import Path
@@ -52,6 +53,15 @@ class MailTransportTest(unittest.TestCase):
         self.assertEqual(sender, "announce@example.org")
         self.assertEqual(to, ["users@example.org", "dev@example.org"])
 
+    def test_plain_smtp_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "ssl or starttls"):
+            mail.smtp_connection("example.invalid", 25, "plain")
+
+    def test_remote_smtp_text_is_not_logged(self):
+        error = smtplib.SMTPAuthenticationError(535, b"secret echoed by server")
+        self.assertEqual(mail.report_transport_error(error), "SMTP authentication failed")
+        self.assertNotIn("secret", mail.report_transport_error(error))
+
 
 class IRCTransportTest(unittest.TestCase):
     def test_sasl_join_and_single_privmsg(self):
@@ -95,10 +105,8 @@ class IRCTransportTest(unittest.TestCase):
         thread = threading.Thread(target=server)
         thread.start()
         try:
-            client = irc.IRCClient(
-                client_sock, "zpln-bot", "#zeppe-lin", "account", "secret"
-            )
-            client.authenticate("zpln-bot")
+            client = irc.IRCClient(client_sock, "zpln-bot", "#zeppe-lin")
+            client.authenticate("zpln-bot", "account", "secret")
             client.publish("[release] pkgman v6.3 released — https://example.invalid/r")
         finally:
             client_sock.close()
