@@ -35,6 +35,18 @@ class MailTransportTest(unittest.TestCase):
             first["X-Zeppe-Lin-Event-ID"], "release:zeppe-lin/pkgman:v6.3"
         )
 
+    def test_message_id_changes_with_renderer_template(self):
+        payload = self.payload()
+        payload["template"] = 1
+        first, _, _ = mail.build_message(
+            payload, "announce@example.org", "users@example.org"
+        )
+        payload["template"] = 2
+        second, _, _ = mail.build_message(
+            payload, "announce@example.org", "users@example.org"
+        )
+        self.assertNotEqual(first["Message-ID"], second["Message-ID"])
+
     def test_recipient_list_is_parsed_as_addresses(self):
         _, sender, to = mail.build_message(
             self.payload(),

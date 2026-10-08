@@ -28,8 +28,12 @@ def sender_address(value):
     return parsed[0]
 
 
-def message_id(event_id, destination, sender):
-    digest = hashlib.sha256(f"{event_id}\0{destination}".encode()).hexdigest()[:32]
+def message_id(event_id, destination, sender, template=1):
+    if not isinstance(template, int) or template < 1:
+        raise ValueError("invalid mail template version")
+    digest = hashlib.sha256(
+        f"{event_id}\0{destination}\0template-{template}".encode()
+    ).hexdigest()[:32]
     domain = sender.rsplit("@", 1)[1] if "@" in sender else "invalid.local"
     return f"<zeppe-lin-{digest}@{domain}>"
 
@@ -45,7 +49,10 @@ def build_message(payload, sender, recipient_text):
     msg["Subject"] = payload["subject"]
     msg["Date"] = formatdate(localtime=False)
     msg["Message-ID"] = message_id(
-        payload["event_id"], payload["destination"], envelope_sender
+        payload["event_id"],
+        payload["destination"],
+        envelope_sender,
+        payload.get("template", 1),
     )
     msg["X-Zeppe-Lin-Event-ID"] = payload["event_id"]
     msg.set_content(payload["body"], charset="utf-8")
