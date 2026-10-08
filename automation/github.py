@@ -42,7 +42,17 @@ def fetch_release(repository, tag, token=None):
 
 
 def gh(*args, check=True, env=None):
-    return subprocess.run(["gh", *args], check=check, env=env)
+    result = subprocess.run(
+        ["gh", *args],
+        check=False,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if check and result.returncode != 0:
+        raise ValueError(f"GitHub command failed (exit {result.returncode})")
+    return result
 
 
 def publish_release(tag, notes, title=None, prerelease=False, env=os.environ):

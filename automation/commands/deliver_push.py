@@ -1,10 +1,9 @@
 import argparse
 import json
 import os
-import smtplib
 import sys
 
-from automation.delivery import deliver_push
+from automation.delivery import DELIVERY_ERRORS, deliver_push
 from automation.gitstate import UNRESOLVED_ATTEMPT
 from automation.mail import report_transport_error
 
@@ -27,18 +26,8 @@ def main(argv=None):
         status, message = deliver_push(
             args.delivery_dir, args.destination, args.force, os.environ
         )
-    except (
-        OSError,
-        KeyError,
-        ValueError,
-        json.JSONDecodeError,
-        smtplib.SMTPException,
-    ) as exc:
-        diagnostic = (
-            report_transport_error(exc)
-            if isinstance(exc, smtplib.SMTPException)
-            else str(exc)
-        )
+    except DELIVERY_ERRORS as exc:
+        diagnostic = report_transport_error(exc)
         print(f"error: push delivery failed: {diagnostic}", file=sys.stderr)
         return 1
     if status == UNRESOLVED_ATTEMPT:

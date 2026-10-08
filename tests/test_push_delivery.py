@@ -88,6 +88,24 @@ class PushDeliveryTest(unittest.TestCase):
         ).stdout
         self.assertEqual(refs, "")
 
+
+    def test_delivery_plan_cannot_escape_artifact_directory(self):
+        output = self.root / "delivery"
+        write_push_artifacts(self.manifest(), output)
+        plan_path = output / "delivery-plan.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["deliveries"]["mail-dev"][0]["artifact"] = "../outside.json"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "escapes delivery directory"):
+            deliver_push(output, "mail-dev", env={})
+
+        refs = subprocess.run(
+            ["git", "-C", str(self.state), "for-each-ref", "--format=%(refname)", "refs/automation"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertEqual(refs, "")
+
     def test_empty_user_route_needs_no_transport_credentials_or_state(self):
         output = self.root / "delivery"
         write_push_artifacts(self.manifest(), output)

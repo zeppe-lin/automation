@@ -1,6 +1,5 @@
 import argparse
 import os
-import subprocess
 import sys
 
 from automation.github import queue_release
@@ -19,6 +18,6 @@ def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
         queue_release(args.repository, args.tag, args.automation_repository, os.environ)
-    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError) as exc:
         return error(f"release delivery queue failed: {exc}")
     return 0

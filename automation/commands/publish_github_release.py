@@ -1,6 +1,5 @@
 import argparse
 import os
-import subprocess
 import sys
 
 from automation.github import publish_release
@@ -27,7 +26,7 @@ def main(argv=None):
             args.tag, args.notes, title=args.name or None,
             prerelease=args.prerelease, env=os.environ,
         )
-    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError) as exc:
         return error(f"GitHub release publication failed: {exc}")
     if not created:
         print(f"release {args.tag} is already published; leaving it unchanged")

@@ -7,11 +7,14 @@ destination, and refuse to infer success after an uncertain transport attempt.
 
 import json
 import os
+import smtplib
 from pathlib import Path, PurePosixPath
 
 from . import gitstate
 from .irc import send as send_irc
 from .mail import send as send_mail
+
+DELIVERY_ERRORS = (OSError, KeyError, ValueError, json.JSONDecodeError, smtplib.SMTPException)
 
 
 def require_environment(destination, env=os.environ):
