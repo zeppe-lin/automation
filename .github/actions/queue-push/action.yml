@@ -1,0 +1,24 @@
+name: Queue push automation
+description: Normalize the GitHub push event and queue central automation
+
+inputs:
+  dispatch-token:
+    description: Token permitted to dispatch zeppe-lin/automation
+    required: true
+  automation-repository:
+    description: Central automation repository
+    required: false
+    default: zeppe-lin/automation
+
+runs:
+  using: composite
+  steps:
+    - name: Queue normalized push event
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.dispatch-token }}
+        AUTOMATION_REPOSITORY: ${{ inputs.automation-repository }}
+      run: >-
+        python3 "$GITHUB_ACTION_PATH/../../../libexec/queue-github-push.py"
+        "$GITHUB_EVENT_PATH"
+        --automation-repository "$AUTOMATION_REPOSITORY"
