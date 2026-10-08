@@ -1,47 +1,37 @@
 # NEWS-driven GitHub releases
 
-The release workflow publishes repository-maintained release notes from
-`NEWS.md` when a version tag is pushed.
+A project release is published from repository-maintained `NEWS.md`. The source
+repository owns the tag and release notes; Zeppe-Lin Automation supplies a
+small forge adapter that projects that authority into a GitHub Release and then
+queues central announcement delivery.
 
-This mechanism is separate from the repository-event notification pipeline.
-Release publication projects already-maintained release authority into the
-forge; it does not classify commits, route notifications, or reconstruct
-release prose from commit history.
+This is separate from generic commit-event classification. Release publication
+does not reconstruct prose from commit history.
 
 ## NEWS contract
 
-Each release has one level-two Markdown section whose final heading token is
-the version without the leading `v` from the Git tag:
+Each release has exactly one level-two Markdown section whose final heading
+token is the tag version without the leading `v`:
 
 ```markdown
 # NEWS
 
-## pkgman 6.3 — Unreleased
+## pkgman 6.3 — 2026-10-08
 
 Release notes for 6.3.
-
-## pkgman 6.2 — 2025-12-12
-
-Release notes for 6.2.
 ```
 
-A bare version heading is also valid:
+A bare version heading is also valid. Missing, duplicate, or empty matching
+sections are rejected. Level-three and deeper headings remain part of the body.
 
-```markdown
-## 1.0.0 — 2026-08-26
-```
-
-Before creating a release tag, replace `Unreleased` with the release date.  The
-extractor requires exactly one matching version section and rejects missing,
-duplicate, or empty sections.  Level-three and deeper headings remain part of
-the release body.
-
-Supported release tags begin with `v` and contain a dotted version, for example
-`v6.3`, `v1.0.0`, or `v1.0.0-rc.1`.
+Supported tags are dotted `v`-prefixed versions such as `v6.3`, `v1.0.0`, or
+`v1.0.0-rc.1`.
 
 ## Caller workflow
 
-A repository keeps a small tag-triggered caller workflow:
+The source repository keeps a deliberately small tag-triggered workflow. It
+checks out the tag and invokes the automation composite action pinned to one
+reviewed commit:
 
 ```yaml
 name: Release
@@ -56,63 +46,53 @@ permissions:
 
 jobs:
   release:
-    uses: zeppe-lin/automation/.github/workflows/release-from-news.yml@<reviewed-commit-sha>
-    secrets:
-      automation_dispatch_token: ${{ secrets.AUTOMATION_DISPATCH_TOKEN }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<reviewed-checkout-sha>
+        with:
+          fetch-depth: 0
+
+      - uses: zeppe-lin/automation/.github/actions/release-from-news@<reviewed-automation-sha>
+        with:
+          tag: ${{ github.ref_name }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          dispatch-token: ${{ secrets.AUTOMATION_DISPATCH_TOKEN }}
 ```
 
-Pin the reusable workflow to a reviewed immutable commit SHA in production.
-The dispatch token should be a fine-grained token scoped to
-`zeppe-lin/automation` with `Contents: write`; source repositories do not need
-SMTP or IRC credentials.
-The called workflow cannot elevate permissions beyond the caller, so the caller
-must grant `contents: write` for GitHub release creation.
+Optional inputs are `news`, `release-name`, and `prerelease`.
 
-Optional inputs are available for repositories that use another NEWS pathname,
-a custom release title, or prerelease publication:
+The source repository receives no SMTP or IRC credentials.
 
-```yaml
-jobs:
-  release:
-    uses: zeppe-lin/automation/.github/workflows/release-from-news.yml@<reviewed-commit-sha>
-    with:
-      news_path: NEWS.md
-      release_name: v1.0.0
-      prerelease: false
+## Adapter boundary
+
+The composite action contains no release parser, GitHub-release state machine,
+or dispatch JSON implementation. It delegates to locally executable commands
+under `libexec/`:
+
+```text
+extract-news.py
+publish-github-release.py
+queue-release-delivery.py
 ```
 
-## Execution boundary
-
-The reusable workflow runs in the caller repository context.  Its checkout step
-therefore checks out the caller's tagged source tree.  The NEWS extractor is
-packaged as an action inside this repository and referenced with the GitHub
-self-repository `$/` syntax, which binds the helper implementation to the same
-revision as the reusable workflow.
-
-The workflow treats tag names, paths, and release titles as data.  Values are
-passed through environment variables or action inputs rather than interpolated
-into executable shell source.
-
-After the GitHub Release has been published, the workflow sends a
-`release-published` repository-dispatch event to `zeppe-lin/automation`.  The
-central delivery workflow re-fetches the release and owns mailing-list and IRC
-delivery.  See `release-delivery.md` for the transport, queue, and replay
-contract.
+Those commands are independently testable with local files and a synthetic
+`gh` executable. GitHub Actions supplies checkout state, permissions, and
+tokens only.
 
 ## Local validation
 
-Run the extractor regression suite with:
+Run all automation tests with:
 
 ```sh
-python3 -m unittest tests/test_extract_news.py
+make check
 ```
 
-A repository can also validate a prospective release section directly:
+Validate only a prospective NEWS section with:
 
 ```sh
-.github/actions/extract-news/extract-news.py \
-    v6.3 NEWS.md /tmp/release-notes.md
+python3 libexec/extract-news.py v6.3 NEWS.md /tmp/release-notes.md
 ```
 
-The generated file contains only the body of the matching release section; the
-section heading is represented by the GitHub release title.
+The forge publication commands can be qualified with a fake `gh` executable;
+see `testing.md`.

@@ -1,20 +1,20 @@
 # Internal command contracts
 
-The commands under `.github/actions/` and `libexec/` are implementation
-boundaries of Zeppe-Lin Automation. They are intentionally small, use only the
-Python standard library, and are usable from local tests without GitHub Actions.
+The commands under `libexec/` are executable boundaries of Zeppe-Lin
+Automation. They use the Python standard library plus ordinary system tools
+where documented. GitHub Actions invokes these commands; the workflow files do
+not own their semantics.
 
-They follow these common rules:
+Common rules:
 
-* structured or durable data is written to files, not shell-generated workflow
-  outputs;
+* structured or durable data is written to files rather than workflow outputs;
 * credentials are supplied only through environment variables;
 * credentials are never accepted as command-line arguments;
 * stdout contains bounded operational state, never protocol transcripts;
 * stderr contains bounded diagnostics, never credentials or transformed
   credentials;
-* exit status `2` means command-line misuse unless a command documents another
-  status explicitly.
+* no command requires GitHub Actions merely to be exercised;
+* exit status `2` denotes command-line misuse unless documented otherwise.
 
 ## `extract-news.py`
 
@@ -22,32 +22,40 @@ They follow these common rules:
 extract-news.py TAG NEWS OUTPUT
 ```
 
-Extract exactly one level-two NEWS section matching the version in `TAG` and
-write the section body to `OUTPUT`.
+Extract exactly one level-two NEWS section matching `TAG`. No network access or
+credentials are used.
 
-The command has no network access and consumes no credentials. On success it
-prints only the selected version.
+## `publish-github-release.py`
+
+```text
+publish-github-release.py TAG NOTES [--name NAME] [--prerelease]
+```
+
+Publish one GitHub Release using `gh`. Existing releases are left unchanged.
+`GH_TOKEN` is required in the environment. `RELEASE_NAME` and
+`RELEASE_PRERELEASE` are accepted as adapter defaults so composite actions do
+not need shell option construction.
+
+## `queue-release-delivery.py`
+
+```text
+queue-release-delivery.py REPOSITORY TAG
+```
+
+Send one `release-published` repository dispatch to the central automation
+repository using `gh`. `GH_TOKEN` is required. The JSON payload is created as a
+file and passed as data.
 
 ## `collect-github-release.py`
 
 ```text
-collect-github-release.py REPOSITORY TAG OUTPUT
+collect-github-release.py REPOSITORY TAG OUTPUT [--release-json FILE]
 ```
 
-Fetch the published GitHub Release for a Zeppe-Lin repository and normalize it
-into `OUTPUT` as schema-1 JSON.
-
-`REPOSITORY` and `TAG` select authority; they do not provide release prose. The
-release body, title, URL, draft state, and prerelease state are fetched again
-from GitHub.
-
-Environment:
-
-```text
-GITHUB_TOKEN    optional token used only as an Authorization header
-```
-
-On success stdout contains only the normalized event ID.
+Normalize one published GitHub Release into schema-1 JSON. Without
+`--release-json`, the command re-fetches publication authority from GitHub and
+may use `GITHUB_TOKEN` as an Authorization header. With `--release-json`, the
+same normalization runs entirely offline against a fixture payload.
 
 ## `render-release.py`
 
@@ -55,7 +63,7 @@ On success stdout contains only the normalized event ID.
 render-release.py MANIFEST OUTPUT-DIR
 ```
 
-Render a normalized release manifest into:
+Render one normalized release into:
 
 ```text
 manifest.json
@@ -64,9 +72,17 @@ mail-dev.json
 irc.txt
 ```
 
-The renderer performs no network I/O and consumes no credentials. These files
-are safe to retain as workflow artifacts because they contain published release
-information only.
+Rendering is deterministic, consumes no credentials, and performs no network
+I/O.
+
+## `prepare-release.py`
+
+```text
+prepare-release.py REPOSITORY TAG OUTPUT-DIR [--release-json FILE]
+```
+
+Compose collection and rendering as one locally executable preparation stage.
+This is the command used by the central workflow.
 
 ## `delivery-state.py`
 
@@ -75,28 +91,48 @@ delivery-state.py claim REPOSITORY TAG DESTINATION [--force]
 delivery-state.py delivered REPOSITORY TAG DESTINATION
 ```
 
-Maintain the Git-ref delivery ledger in `zeppe-lin/automation`.
+Maintain release-delivery evidence in ordinary Git refs.
 
 Environment:
 
 ```text
-GITHUB_REPOSITORY
-GITHUB_TOKEN
-GITHUB_SHA
-GITHUB_RUN_ID
-GITHUB_RUN_ATTEMPT    optional; defaults to 1
+AUTOMATION_STATE_REPOSITORY   local Git repository; defaults to .
+AUTOMATION_STATE_REMOTE       optional remote to query and mirror refs to
+AUTOMATION_STATE_SHA          object ID for new refs; defaults to local HEAD
+AUTOMATION_RUN_ID             attempt identity; defaults to local
+AUTOMATION_RUN_ATTEMPT        attempt sequence; defaults to 1
 ```
 
-Exit statuses for `claim`:
+`claim` statuses:
 
 ```text
-0     claim created; transport may proceed
-20    destination already delivered; transport must not run
-21    unresolved prior attempt exists; explicit replay is required
+0     claim created; external effect may proceed
+20    destination already delivered; external effect must not run
+21    unresolved prior attempt; explicit replay is required
 ```
 
-The GitHub token is used only in the HTTP Authorization header. It is never
-written to the ref name, payload, stdout, or stderr.
+With no remote, all behavior is local. Production points the checked-out
+automation repository at `origin`; the same transitions are then mirrored as
+central durable refs.
+
+## `deliver-release.py`
+
+```text
+deliver-release.py DELIVERY-DIR mail-user|mail-dev|irc [--force]
+```
+
+Own the complete destination transition:
+
+```text
+validate transport configuration
+claim delivery state
+perform exactly one external transport effect
+record delivered state
+```
+
+`AUTOMATION_FORCE_REPLAY=true` is equivalent to `--force` and exists for the
+thin workflow adapter. A configuration failure occurs before a claim is
+written.
 
 ## `send-mail.py`
 
@@ -104,29 +140,23 @@ written to the ref name, payload, stdout, or stderr.
 send-mail.py MESSAGE.json
 ```
 
-Submit one rendered message over TLS-protected SMTP.
+Submit one rendered message over verified TLS SMTP.
 
 Environment:
 
 ```text
 SMTP_HOST
-SMTP_PORT          optional; defaults to 465
-SMTP_SECURITY      optional; ssl or starttls, defaults to ssl
-SMTP_USERNAME      optional authentication identity
-SMTP_PASSWORD      required when SMTP_USERNAME is set
+SMTP_PORT             optional; defaults to 465
+SMTP_SECURITY         ssl or starttls; defaults to ssl
+SMTP_USERNAME         optional authentication identity
+SMTP_PASSWORD         paired with SMTP_USERNAME
 MAIL_FROM
 MAIL_TO
+AUTOMATION_CA_FILE    optional explicit CA file; primarily for local fixtures
 ```
 
-Authenticated plaintext SMTP is not supported. Certificate verification uses
-the platform trust store.
-
-Remote SMTP response text is deliberately not printed. Authentication failures,
-server rejections, disconnects, and transport/TLS failures are reduced to
-bounded diagnostics so a hostile or misconfigured server cannot inject
-credential-like or control data into workflow logs.
-
-On success stdout contains only the number of accepted recipients.
+There is no plaintext authenticated mode and no certificate-verification bypass.
+Remote SMTP response text is reduced to bounded diagnostics before logging.
 
 ## `send-irc.py`
 
@@ -134,25 +164,20 @@ On success stdout contains only the number of accepted recipients.
 send-irc.py MESSAGE.txt
 ```
 
-Submit exactly one IRC `PRIVMSG` over TLS after SASL PLAIN authentication.
+Submit exactly one IRC `PRIVMSG` over verified TLS after SASL PLAIN
+authentication.
 
 Environment:
 
 ```text
 IRC_HOST
-IRC_PORT           optional; defaults to 6697
+IRC_PORT              optional; defaults to 6697
 IRC_CHANNEL
 IRC_NICK
-IRC_USERNAME       optional; defaults to IRC_NICK
-IRC_SASL_USERNAME  optional; defaults to IRC_NICK
+IRC_USERNAME          optional; defaults to IRC_NICK
+IRC_SASL_USERNAME     optional; defaults to IRC_NICK
 IRC_SASL_PASSWORD
+AUTOMATION_CA_FILE    optional explicit CA file; primarily for local fixtures
 ```
 
-TLS is mandatory. There is intentionally no plaintext mode because SASL PLAIN
-encodes rather than encrypts the credential.
-
-The client never logs IRC protocol traffic. In particular, the base64 SASL
-payload is a transformed credential and must not be exposed on the assumption
-that forge secret masking will recognize it.
-
-On success stdout contains only `submitted IRC announcement`.
+The client never logs IRC protocol traffic or the base64 SASL payload.

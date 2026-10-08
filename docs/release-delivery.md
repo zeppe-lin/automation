@@ -57,7 +57,7 @@ External transports are not safely retryable by assumption.  An SMTP server
 can accept a message before a connection failure is observed, and IRC can
 accept some lines before a socket is lost.
 
-Before a destination performs network I/O, the workflow creates an attempt ref
+Before a destination performs network I/O, the local delivery command creates an attempt ref
 in this repository:
 
 ```text
@@ -148,21 +148,14 @@ a partially uncertain session.
 
 ## Caller authentication
 
-The NEWS release workflow dispatches the announcement only after the GitHub
-Release has been published.  The caller supplies an
-`automation_dispatch_token` secret.  For a fine-grained GitHub token, grant
+The NEWS release action dispatches the announcement only after the GitHub
+Release has been published. The caller supplies an `AUTOMATION_DISPATCH_TOKEN`
+secret.  For a fine-grained GitHub token, grant
 `Contents: write` only on `zeppe-lin/automation`; GitHub requires that
 permission for the repository-dispatch endpoint.
 
-A project caller can normally use an organization secret:
-
-```yaml
-jobs:
-  release:
-    uses: zeppe-lin/automation/.github/workflows/release-from-news.yml@<sha>
-    secrets:
-      automation_dispatch_token: ${{ secrets.AUTOMATION_DISPATCH_TOKEN }}
-```
+A project caller can normally use an organization secret through the pinned
+composite action described in `release-from-news.md`.
 
 SMTP and IRC credentials stay in `zeppe-lin/automation` and are never exposed
 to source repositories.
@@ -197,19 +190,15 @@ Only the central automation repository needs them.
 
 ## Local tests
 
-Run the release pipeline tests with:
+Run the complete local qualification suite with:
 
 ```sh
-python3 -m unittest \
-    tests/test_extract_news.py \
-    tests/test_release_announcement.py \
-    tests/test_delivery_transports.py \
-    tests/test_delivery_state.py
+make check
 ```
 
-The suite covers release normalization, separate renderers, UTF-8 bounded IRC
-output, stable mail identity, an in-process IRC SASL exchange, and delivery
-ledger behavior.
+The suite includes offline release fixtures, Git-ref delivery state, verified
+TLS SMTP and IRC fixture servers, end-to-end release delivery, forge-adapter
+tests with a synthetic `gh`, and workflow-policy checks. See `testing.md`.
 
 ## Security and internal command contracts
 

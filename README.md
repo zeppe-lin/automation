@@ -329,3 +329,15 @@ copyright, attribution, and third-party notices.
 The forge reports that something happened.
 
 The automation must determine what the project is required to remember.
+
+## Local qualification
+
+Automation is developed as locally executable machinery first. Run:
+
+```sh
+make check
+```
+
+The suite does not require GitHub, Gmail, LiberaChat, production credentials,
+or Internet access. See `docs/testing.md` for the fixture model and
+`docs/issue-1-status.md` for the current implementation boundary of issue #1.
