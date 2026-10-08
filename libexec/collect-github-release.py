@@ -7,6 +7,7 @@ authority.
 """
 
 
+import argparse
 import json
 import os
 import re
@@ -98,19 +99,34 @@ def fetch_release(repository, tag, token=None):
     return normalize_release(repository, tag, payload)
 
 
-def main():
-    if len(sys.argv) != 4:
-        print(f"usage: {sys.argv[0]} REPOSITORY TAG OUTPUT", file=sys.stderr)
-        return 2
+def parse_args(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("repository")
+    parser.add_argument("tag")
+    parser.add_argument("output")
+    parser.add_argument(
+        "--release-json",
+        metavar="FILE",
+        help="normalize a local GitHub Release payload instead of using the network",
+    )
+    return parser.parse_args(argv)
 
-    repository, tag, output = sys.argv[1:]
+
+def main(argv=None):
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
-        manifest = fetch_release(repository, tag, os.environ.get("GITHUB_TOKEN"))
-        Path(output).write_text(
+        if args.release_json:
+            payload = json.loads(Path(args.release_json).read_text(encoding="utf-8"))
+            manifest = normalize_release(args.repository, args.tag, payload)
+        else:
+            manifest = fetch_release(
+                args.repository, args.tag, os.environ.get("GITHUB_TOKEN")
+            )
+        Path(args.output).write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
