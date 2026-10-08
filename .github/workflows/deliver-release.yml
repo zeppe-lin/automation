@@ -66,7 +66,7 @@ jobs:
   mail-user:
     name: deliver user-list release announcement
     needs: prepare
-    if: ${{ github.event_name == 'repository_dispatch' || inputs.deliver == true }}
+    if: ${{ (github.event_name == 'repository_dispatch' && vars.RELEASE_DELIVERY_ENABLED == 'true') || (github.event_name == 'workflow_dispatch' && inputs.deliver == true) }}
     runs-on: ${{ fromJSON(vars.DELIVERY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
@@ -97,7 +97,7 @@ jobs:
     needs:
       - prepare
       - mail-user
-    if: ${{ always() && needs.prepare.result == 'success' && (github.event_name == 'repository_dispatch' || inputs.deliver == true) }}
+    if: ${{ always() && needs.prepare.result == 'success' && ((github.event_name == 'repository_dispatch' && vars.RELEASE_DELIVERY_ENABLED == 'true') || (github.event_name == 'workflow_dispatch' && inputs.deliver == true)) }}
     runs-on: ${{ fromJSON(vars.DELIVERY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
@@ -128,7 +128,7 @@ jobs:
     needs:
       - prepare
       - mail-dev
-    if: ${{ always() && needs.prepare.result == 'success' && (github.event_name == 'repository_dispatch' || inputs.deliver == true) }}
+    if: ${{ always() && needs.prepare.result == 'success' && ((github.event_name == 'repository_dispatch' && vars.RELEASE_DELIVERY_ENABLED == 'true') || (github.event_name == 'workflow_dispatch' && inputs.deliver == true)) }}
     runs-on: ${{ fromJSON(vars.DELIVERY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write

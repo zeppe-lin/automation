@@ -71,6 +71,25 @@ class WorkflowPolicyTest(unittest.TestCase):
                 self.assertIn("queue: max", text)
                 self.assertIn("cancel-in-progress: false", text)
 
+
+    def test_external_delivery_is_opt_in_for_automatic_events(self):
+        push = (WORKFLOWS / "deliver-push.yml").read_text(encoding="utf-8")
+        release = (WORKFLOWS / "deliver-release.yml").read_text(encoding="utf-8")
+        self.assertEqual(push.count("vars.PUSH_DELIVERY_ENABLED == 'true'"), 3)
+        self.assertEqual(release.count("vars.RELEASE_DELIVERY_ENABLED == 'true'"), 3)
+        self.assertIn("inputs.deliver == true", release)
+
+    def test_prepare_jobs_receive_no_transport_secrets(self):
+        for name, first_delivery in (
+            ("deliver-push.yml", "  mail-dev:"),
+            ("deliver-release.yml", "  mail-user:"),
+        ):
+            text = (WORKFLOWS / name).read_text(encoding="utf-8")
+            prepare = text.split("jobs:", 1)[1].split(first_delivery, 1)[0]
+            with self.subTest(workflow=name):
+                self.assertNotIn("secrets.SMTP_", prepare)
+                self.assertNotIn("secrets.IRC_", prepare)
+
     def test_push_workflow_is_a_thin_central_adapter(self):
         text = (WORKFLOWS / "deliver-push.yml").read_text(encoding="utf-8")
         self.assertIn("push-observed", text)
