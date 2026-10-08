@@ -49,10 +49,13 @@ alias branch at an already-known commit therefore emits zero commits rather
 than replaying history.
 
 A branch deletion records the ref transition and emits no historical commits.
+It still produces one push-level IRC awareness notice. A force-push rewind that
+introduces no new commits behaves the same way: the ref transition remains an
+observable event even when the commit projection is empty.
 
 Tag creation, update, and deletion are represented explicitly but do not replay
-pointed-to commit history. Published releases have their own release-event
-pipeline.
+pointed-to commit history. They also retain one push-level IRC notice. Published
+releases have their own release-event pipeline.
 
 The collector requires every object needed to interpret the transition. A
 shallow or incomplete checkout that lacks the required pre-push commit fails
@@ -139,9 +142,11 @@ migration, release-note, and reference trailers are presented before narrative
 detail when available. It is not a development diffstat with a different
 recipient.
 
-IRC emits one bounded UTF-8 summary per push. It identifies maintained event
-classes, force-push state, a bounded subset of commit summaries, omitted-count
-information, and one durable URL.
+IRC emits one bounded UTF-8 summary per non-empty ref transition. It identifies
+maintained event classes, force-push state, a bounded subset of commit
+summaries or the ref-lifecycle transition, omitted-count information, and one
+complete durable URL. The URL budget is reserved before summary truncation, so
+a long commit summary cannot truncate the authority link.
 
 No renderer performs transport I/O.
 

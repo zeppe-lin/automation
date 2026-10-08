@@ -87,11 +87,21 @@ names and punctuation that must not become Git-ref syntax. The digest is a
 deterministic representation, not a new source of event truth; it is always
 recomputed from `manifest.json`.
 
-An attempt is recorded before transport I/O:
+Before transport I/O the controller atomically acquires:
+
+```text
+.../claim
+```
+
+and then records the admitted attempt:
 
 ```text
 .../attempts/<run-id>-<run-attempt>
 ```
+
+The claim update uses Git compare-and-swap semantics locally and through the
+state remote, so two controllers cannot both admit the same effect merely
+because they observed stale state at the same time.
 
 A successful transport return is recorded as:
 

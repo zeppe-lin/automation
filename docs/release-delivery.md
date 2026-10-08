@@ -47,9 +47,11 @@ workflow-level concurrency group is shared by all source repositories, so
 release delivery is serialized across the project rather than separately in
 every caller repository.
 
-A normal `repository_dispatch` performs delivery.  Manual `workflow_dispatch`
-runs are dry-run by default and always produce the rendered artifact.  Set the
-manual `deliver` input only when external delivery is intended.
+A normal `repository_dispatch` is dry-run unless the automation repository
+variable `RELEASE_DELIVERY_ENABLED` is exactly `true`. Manual
+`workflow_dispatch` runs are also dry-run by default and always produce the
+rendered artifact. Set the manual `deliver` input only when external delivery
+is intended.
 
 ## Delivery state and replay
 
@@ -57,12 +59,17 @@ External transports are not safely retryable by assumption.  An SMTP server
 can accept a message before a connection failure is observed, and IRC can
 accept some lines before a socket is lost.
 
-Before a destination performs network I/O, the local delivery command creates an attempt ref
-in this repository:
+Before a destination performs network I/O, the local delivery command first
+acquires an atomic per-effect claim ref and then records an attempt ref:
 
 ```text
+refs/automation/delivery/release/<owner>/<repo>/<tag>/<destination>/claim
 refs/automation/delivery/release/<owner>/<repo>/<tag>/<destination>/attempts/<run>-<attempt>
 ```
+
+The claim ref is acquired with Git compare-and-swap semantics. Forge
+concurrency reduces scheduling overlap; the ledger itself still owns duplicate
+effect exclusion.
 
 After successful submission it creates:
 

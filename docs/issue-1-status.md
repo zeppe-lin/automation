@@ -71,8 +71,8 @@ Concrete behavior includes:
 * full `before..after` commit enumeration from Git, not `github.event.commits`;
 * topological oldest-first ordering;
 * branch creation without replaying history shared by existing refs;
-* branch deletion and empty-range representation;
-* force-push detection from the Git graph;
+* branch deletion and empty-range representation with push-level IRC awareness;
+* force-push detection from the Git graph, including rewinds with no new commits;
 * explicit tag create/delete representation without replaying pointed history;
 * arbitrarily large local commit ranges;
 * merge and revert commit preservation;
@@ -87,8 +87,8 @@ Concrete behavior includes:
 * explicit `requirements.json` for durable-artifact review;
 * fail-closed behavior when required pre-push Git objects are unavailable;
 * explicit `delivery-plan.json` binding artifacts to stable effect identities;
-* Git-ref attempt/delivered evidence scoped per event, destination, item, and
-  renderer template;
+* atomic Git-ref claim plus attempt/delivered evidence scoped per event,
+  destination, item, and renderer template;
 * sequential development and user mail delivery in commit order;
 * stop-before-tail behavior after an uncertain transport effect;
 * explicit replay that resumes after already delivered predecessors;

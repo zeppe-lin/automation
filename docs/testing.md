@@ -37,12 +37,14 @@ behavioral Git integration tests
 loopback integration tests
     verified TLS SMTP client <-> fixture SMTP server
     verified TLS IRC/SASL client <-> fixture IRC server
+    IRC PRIVMSG -> PING/PONG completion barrier and uncertain disconnect
     release fixture -> render -> claim -> SMTP -> delivered ref
     real push -> ordered mail -> uncertain effect -> explicit replay
     real push -> bounded IRC -> duplicate suppression
 
 Git-state integration tests
-    attempt/delivered refs mirrored to a local bare remote
+    atomic claim/attempt/delivered refs mirrored to a local bare remote
+    stale concurrent claim loses through Git compare-and-swap
     fresh workspace observes remote evidence and suppresses duplicates
 ```
 
