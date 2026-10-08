@@ -11,6 +11,7 @@ import hashlib
 import os
 import re
 import subprocess
+import uuid
 from pathlib import Path
 
 from .common import validate_release_tag, validate_repository
@@ -31,6 +32,10 @@ class DeliveryKey:
     @property
     def delivered_ref(self):
         return self.ref_base + "/delivered"
+
+    @property
+    def claim_ref(self):
+        return self.ref_base + "/claim"
 
     @property
     def attempts_prefix(self):
@@ -91,14 +96,81 @@ class DeliveryLedger:
                 run_git(self.repository, "update-ref", "-d", ref, check=False)
                 raise ValueError("failed to publish delivery-state ref")
 
+    def ref_value(self, ref):
+        if self.remote:
+            result = run_git(
+                self.repository, "ls-remote", "--refs", self.remote, ref,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise ValueError("failed to read delivery-state ref")
+            for line in result.stdout.splitlines():
+                fields = line.split(None, 1)
+                if len(fields) == 2 and fields[1] == ref:
+                    return fields[0]
+            return None
+        result = run_git(
+            self.repository, "for-each-ref", "--format=%(objectname)", ref, check=False
+        )
+        if result.returncode != 0:
+            raise ValueError("failed to read delivery-state ref")
+        value = result.stdout.strip()
+        return value or None
+
+    def claim_object(self, key):
+        payload = (
+            "Zeppe-Lin automation delivery claim\n"
+            f"{key.ref_base}\n{self.run_id}\n{self.run_attempt}\n{uuid.uuid4()}\n"
+        )
+        result = run_git(
+            self.repository, "hash-object", "-w", "--stdin", input_text=payload
+        )
+        oid = result.stdout.strip()
+        if not OID_RE.fullmatch(oid):
+            raise ValueError("failed to create delivery claim object")
+        return oid
+
+    def acquire_claim(self, key, force=False):
+        current = self.ref_value(key.claim_ref)
+        if current and not force:
+            return False
+
+        claim_oid = self.claim_object(key)
+        if self.remote:
+            expected = current or ""
+            result = run_git(
+                self.repository,
+                "push",
+                f"--force-with-lease={key.claim_ref}:{expected}",
+                self.remote,
+                f"{claim_oid}:{key.claim_ref}",
+                check=False,
+            )
+            return result.returncode == 0
+
+        expected = current or ("0" * len(self.sha))
+        result = run_git(
+            self.repository,
+            "update-ref", key.claim_ref, claim_oid, expected, check=False,
+        )
+        return result.returncode == 0
+
     def claim(self, key, force=False):
         if key.delivered_ref in self.refs(key.delivered_ref):
             return ALREADY_DELIVERED, "already delivered"
 
         attempts = self.refs(key.attempts_prefix)
-        if attempts and not force:
+        pending = self.ref_value(key.claim_ref)
+        if (attempts or pending) and not force:
             return UNRESOLVED_ATTEMPT, (
                 "unresolved prior delivery attempt; explicit replay is required"
+            )
+
+        if not self.acquire_claim(key, force=force):
+            if key.delivered_ref in self.refs(key.delivered_ref):
+                return ALREADY_DELIVERED, "already delivered"
+            return UNRESOLVED_ATTEMPT, (
+                "delivery effect is already claimed by another controller"
             )
 
         attempt_ref = key.attempt_ref(self.run_id, self.run_attempt)
@@ -108,6 +180,8 @@ class DeliveryLedger:
     def mark_delivered(self, key):
         if key.delivered_ref in self.refs(key.delivered_ref):
             return 0, "already delivered"
+        if not self.ref_value(key.claim_ref) or not self.refs(key.attempts_prefix):
+            raise ValueError("delivery effect cannot be marked delivered without a prior claim")
         self.write_ref(key.delivered_ref)
         return 0, "marked delivered " + key.delivered_ref
 

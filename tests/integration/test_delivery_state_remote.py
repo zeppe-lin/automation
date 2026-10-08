@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from automation import gitstate
@@ -38,6 +39,38 @@ class RemoteDeliveryStateIntegrationTest(unittest.TestCase):
             "AUTOMATION_RUN_ID": run_id,
             "AUTOMATION_RUN_ATTEMPT": "1",
         }
+
+
+    def test_remote_claim_uses_compare_and_swap_against_stale_observation(self):
+        event_id = (
+            "push:zeppe-lin/example:refs/heads/master:"
+            + "3" * 40
+            + ":"
+            + "4" * 40
+        )
+        key = gitstate.push_key(
+            "zeppe-lin/example", event_id, "mail-dev", "b" * 40, 1
+        )
+        subprocess.run(["git", "clone", "-q", str(self.remote), str(self.second)], check=True)
+        first_ledger = gitstate.DeliveryLedger.from_environment(
+            self.environment(self.first, "first-claim")
+        )
+        second_ledger = gitstate.DeliveryLedger.from_environment(
+            self.environment(self.second, "stale-claim")
+        )
+        self.assertTrue(first_ledger.acquire_claim(key))
+
+        # Simulate a controller that observed the claim ref as absent just
+        # before another workspace won it. The remote force-with-lease must
+        # still reject the stale create.
+        with mock.patch.object(second_ledger, "ref_value", return_value=None):
+            self.assertFalse(second_ledger.acquire_claim(key))
+
+        remote_claims = subprocess.run(
+            ["git", "ls-remote", "--refs", str(self.remote), key.claim_ref],
+            check=True, capture_output=True, text=True,
+        ).stdout.splitlines()
+        self.assertEqual(len(remote_claims), 1)
 
     def test_remote_ledger_is_shared_across_fresh_workspaces(self):
         event_id = (

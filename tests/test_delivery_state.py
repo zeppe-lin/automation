@@ -52,11 +52,17 @@ class DeliveryStateTest(unittest.TestCase):
 
     def test_claim_skips_already_delivered(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
+            self.assertEqual(state.claim("zeppe-lin/pkgman", "v6.3", "mail-user")[0], 0)
             self.assertEqual(state.mark_delivered("zeppe-lin/pkgman", "v6.3", "mail-user")[0], 0)
             self.assertEqual(
                 state.claim("zeppe-lin/pkgman", "v6.3", "mail-user")[0],
                 state.ALREADY_DELIVERED,
             )
+
+    def test_delivered_evidence_requires_prior_claim(self):
+        with mock.patch.dict(os.environ, self.environment(), clear=False):
+            with self.assertRaisesRegex(ValueError, "without a prior claim"):
+                state.mark_delivered("zeppe-lin/pkgman", "v6.3", "irc")
 
     def test_claim_blocks_unresolved_attempt(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
