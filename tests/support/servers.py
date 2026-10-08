@@ -24,7 +24,7 @@ def server_context():
 
 
 class TLSFixture:
-    def __init__(self):
+    def __init__(self, connections=1):
         self.sock = socket.socket()
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(("127.0.0.1", 0))
@@ -32,6 +32,8 @@ class TLSFixture:
         self.port = self.sock.getsockname()[1]
         self.thread = None
         self.error = None
+        self.connections = connections
+        self.connection_number = 0
 
     def start(self):
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -47,20 +49,30 @@ class TLSFixture:
 
     def _run(self):
         try:
-            raw, _ = self.sock.accept()
-            with server_context().wrap_socket(raw, server_side=True) as conn:
-                self.handle(conn)
+            for index in range(1, self.connections + 1):
+                raw, _ = self.sock.accept()
+                self.connection_number = index
+                with server_context().wrap_socket(raw, server_side=True) as conn:
+                    self.handle(conn)
         except Exception as error:  # fixture must report thread failures
             self.error = error
 
 
 class SMTPServer(TLSFixture):
-    def __init__(self, username="tester", password="synthetic-password"):
-        super().__init__()
+    def __init__(
+        self,
+        username="tester",
+        password="synthetic-password",
+        connections=1,
+        disconnect_after_data=None,
+    ):
+        super().__init__(connections=connections)
         self.username = username
         self.password = password
         self.message = b""
+        self.messages = []
         self.commands = []
+        self.disconnect_after_data = disconnect_after_data
 
     def handle(self, conn):
         file = conn.makefile("rwb", buffering=0)
@@ -76,6 +88,9 @@ class SMTPServer(TLSFixture):
             if data_mode:
                 if stripped == b".":
                     self.message = b"\n".join(data) + b"\n"
+                    self.messages.append(self.message)
+                    if self.disconnect_after_data == self.connection_number:
+                        return
                     file.write(b"250 queued\r\n")
                     data_mode = False
                     continue
@@ -139,8 +154,14 @@ class SMTPServer(TLSFixture):
 
 
 class IRCServer(TLSFixture):
-    def __init__(self, nick="zpln-test", account="tester", password="synthetic-password"):
-        super().__init__()
+    def __init__(
+        self,
+        nick="zpln-test",
+        account="tester",
+        password="synthetic-password",
+        connections=1,
+    ):
+        super().__init__(connections=connections)
         self.nick = nick
         self.account = account
         self.password = password
