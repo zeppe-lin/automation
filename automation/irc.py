@@ -128,6 +128,21 @@ class IRCClient:
                 except UnicodeDecodeError:
                     data = data[:-1]
         self.send_line(prefix + message)
+
+        # IRC has no acknowledgement for PRIVMSG. Use a command-order barrier:
+        # once the server answers this PING, it has parsed the preceding
+        # PRIVMSG on the same TCP stream. Until that point the external effect
+        # remains uncertain and the delivery ledger must not admit completion.
+        barrier = "zeppe-lin-automation-delivery"
+        self.send_line(f"PING :{barrier}")
+        while True:
+            line = self.read_line(deadline)
+            command = parse_command(line)
+            if command in {"401", "403", "404", "405", "411", "412", "413", "414"}:
+                raise ConnectionError(f"IRC message delivery failed: {command}")
+            if command == "PONG" and barrier in line:
+                break
+
         self.send_line("QUIT :automation message submitted")
 
 

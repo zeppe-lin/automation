@@ -160,6 +160,7 @@ class IRCServer(TLSFixture):
         account="tester",
         password="synthetic-password",
         connections=1,
+        disconnect_after_privmsg=None,
     ):
         super().__init__(connections=connections)
         self.nick = nick
@@ -167,6 +168,7 @@ class IRCServer(TLSFixture):
         self.password = password
         self.commands = []
         self.messages = []
+        self.disconnect_after_privmsg = disconnect_after_privmsg
 
     def handle(self, conn):
         file = conn.makefile("rwb", buffering=0)
@@ -196,5 +198,10 @@ class IRCServer(TLSFixture):
                 file.write(f":{self.nick}!u@h JOIN :{channel}\r\n".encode())
             elif text.startswith("PRIVMSG "):
                 self.messages.append(text)
+                if self.disconnect_after_privmsg == self.connection_number:
+                    return
+            elif text.startswith("PING "):
+                token = text.split(" ", 1)[1]
+                file.write(f":srv PONG srv {token}\r\n".encode())
             elif text.startswith("QUIT "):
                 return

@@ -100,6 +100,9 @@ class IRCTransportTest(unittest.TestCase):
                             server_sock.sendall(
                                 f":{nick}!u@h JOIN :#zeppe-lin\r\n".encode()
                             )
+                        elif line.startswith("PING "):
+                            token = line.split(" ", 1)[1]
+                            server_sock.sendall(f":srv PONG srv {token}\r\n".encode())
                         elif line.startswith("QUIT "):
                             return
             finally:
