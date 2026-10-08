@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .common import validate_release_tag, validate_repository
 from .release import normalize_github_release
+from .providers.github import normalize_push_event, repository_dispatch_payload
 
 
 def fetch_release(repository, tag, token=None):
@@ -93,3 +94,23 @@ def queue_release(repository, tag, automation_repository="zeppe-lin/automation",
             "--input", str(path),
             env=env,
         )
+
+
+def queue_push(event_payload, automation_repository="zeppe-lin/automation", env=os.environ):
+    """Queue one normalized GitHub push for central processing."""
+
+    if not env.get("GH_TOKEN", "").strip():
+        raise ValueError("GH_TOKEN is required")
+    validate_repository(automation_repository)
+    envelope = normalize_push_event(event_payload)
+    payload = repository_dispatch_payload(envelope)
+    with tempfile.TemporaryDirectory(prefix="automation-dispatch-") as tmp:
+        path = Path(tmp) / "payload.json"
+        path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+        gh(
+            "api", "--method", "POST",
+            f"repos/{automation_repository}/dispatches",
+            "--input", str(path),
+            env=env,
+        )
+    return envelope

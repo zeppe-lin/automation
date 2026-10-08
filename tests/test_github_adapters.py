@@ -17,6 +17,11 @@ class GitHubAdapterTest(unittest.TestCase):
         script.write_text(
             "#!/bin/sh\n"
             "printf '%s\\n' \"$*\" >>\"$FAKE_GH_LOG\"\n"
+            "previous=''\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$previous\" = '--input' ] && [ -n \"${FAKE_GH_INPUT:-}\" ]; then cp \"$arg\" \"$FAKE_GH_INPUT\"; fi\n"
+            "  previous=$arg\n"
+            "done\n"
             "if [ \"$1 $2\" = 'release view' ]; then exit ${FAKE_RELEASE_EXISTS:-1}; fi\n"
             "exit 0\n",
             encoding="utf-8",
@@ -46,6 +51,29 @@ class GitHubAdapterTest(unittest.TestCase):
             self.assertIn("release view v6.3", commands)
             self.assertIn("release create v6.3", commands)
             self.assertNotIn("synthetic-token", commands)
+
+
+    def test_push_dispatch_contains_only_normalized_coordinates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            log = self.fake_gh(tmpdir)
+            captured = tmpdir / "dispatch.json"
+            env = self.environment(tmpdir, log)
+            env["FAKE_GH_INPUT"] = str(captured)
+            source = ROOT / "tests" / "fixtures" / "github" / "push-normal.json"
+            result = subprocess.run(
+                [str(ROOT / "libexec" / "queue-github-push.py"), str(source)],
+                env=env, check=False, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(captured.read_text(encoding="utf-8"))
+            self.assertEqual(payload["event_type"], "push-observed")
+            envelope = payload["client_payload"]["envelope"]
+            self.assertEqual(envelope["repository"], "zeppe-lin/example")
+            self.assertNotIn("commits", envelope)
+            self.assertNotIn("forced", envelope)
+            self.assertNotIn("synthetic-token", captured.read_text(encoding="utf-8"))
+            self.assertNotIn("synthetic-token", log.read_text(encoding="utf-8"))
 
     def test_dispatch_payload_is_data_not_shell_source(self):
         with tempfile.TemporaryDirectory() as tmp:
