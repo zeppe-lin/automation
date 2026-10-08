@@ -124,6 +124,7 @@ review before external effects:
 
 ```text
 manifest.json
+delivery-plan.json
 requirements.json
 mail-dev/
 mail-user/
@@ -144,10 +145,19 @@ information, and one durable URL.
 
 No renderer performs transport I/O.
 
+`delivery-plan.json` is the admitted bridge to the delivery controller. It
+preserves per-destination order and binds each external effect to its event,
+commit or push item, and renderer template version. See `push-delivery.md`.
+
 ## Current boundary
 
-The local pipeline currently ends at rendered artifacts. Generic push delivery,
-delivery-state identity, the GitHub push adapter, and exact durable-artifact
-validation are deliberately not implemented in this tranche.
+The local provider-neutral path now continues through Git-backed delivery state
+and the real SMTP/IRC transports. Development and user mail are submitted
+sequentially per destination; unresolved effects stop later messages until an
+operator explicitly replays them. IRC remains one bounded push-level effect.
+
+The remaining boundary is the forge: there is still no GitHub push-event
+adapter or push-delivery workflow. Exact durable-artifact validation also
+remains coupled to unfinished Codebook doctrine.
 
 That is a boundary, not missing YAML.

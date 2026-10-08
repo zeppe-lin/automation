@@ -224,6 +224,10 @@ workflow YAML merely because those surfaces are executable.
 
 The boundary between the generic engine and forge adapters must remain.
 
+The provider-neutral push path, including ordered external delivery and its
+Git-backed evidence model, is documented in `docs/push-events.md` and
+`docs/push-delivery.md`.
+
 ## Current Status
 
 This repository is in bootstrap and migration state.

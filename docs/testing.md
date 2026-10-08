@@ -38,6 +38,12 @@ loopback integration tests
     verified TLS SMTP client <-> fixture SMTP server
     verified TLS IRC/SASL client <-> fixture IRC server
     release fixture -> render -> claim -> SMTP -> delivered ref
+    real push -> ordered mail -> uncertain effect -> explicit replay
+    real push -> bounded IRC -> duplicate suppression
+
+Git-state integration tests
+    attempt/delivered refs mirrored to a local bare remote
+    fresh workspace observes remote evidence and suppresses duplicates
 ```
 
 The TLS fixtures use the repository-owned certificate and private key under
@@ -171,5 +177,12 @@ python3 libexec/prepare-push.py \
     /tmp/push-delivery
 ```
 
-Inspect `manifest.json`, `requirements.json`, `mail-dev/`, `mail-user/`, and
-`irc.txt` before any forge adapter or external delivery is introduced.
+Inspect `manifest.json`, `delivery-plan.json`, `requirements.json`,
+`mail-dev/`, `mail-user/`, and `irc.txt` before external delivery.
+
+Push delivery itself is also locally qualified. `deliver-push.py` consumes the
+same prepared directory used by production and can be pointed at the loopback
+SMTP/IRC fixtures plus any disposable Git state repository. The integration
+suite proves ordered mail, an SMTP disconnect after DATA, unresolved-effect
+blocking, explicit replay, user-route filtering, IRC SASL submission, and
+cross-workspace duplicate suppression through a local bare Git remote.

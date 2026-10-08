@@ -208,13 +208,30 @@ routing, and deterministic rendering. The output directory contains:
 
 ```text
 manifest.json
+delivery-plan.json
 requirements.json
 mail-dev/NNNN.json
 mail-user/NNNN.json
 irc.txt                 when the push contains routed commits
 ```
 
-No external delivery is performed.
+No external delivery is performed. `delivery-plan.json` binds the rendered
+artifacts to their event, item, destination, and template identities.
+
+## `deliver-push.py`
+
+```text
+deliver-push.py DELIVERY-DIR mail-user|mail-dev|irc [--force]
+```
+
+Validate and execute one prepared push destination. Mail is submitted one
+commit at a time in delivery-plan order. Every item is claimed in the Git
+ledger before transport and marked delivered only after the transport returns
+success. An unresolved attempt stops the sequence before later items.
+
+`AUTOMATION_FORCE_REPLAY=true` is equivalent to `--force`. The same
+`AUTOMATION_STATE_*` environment contract documented for `delivery-state.py`
+applies. Mail and IRC use the transport-specific variables documented below.
 
 ## `render-push.py`
 

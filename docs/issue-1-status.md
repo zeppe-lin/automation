@@ -54,6 +54,15 @@ routing + durable-requirement projection
     +--> ordered development-mail files
     +--> semantic user-mail files
     `--> bounded IRC summary
+          |
+          v
+    explicit delivery plan
+          |
+          v
+    Git-backed effect ledger
+          |
+          +--> sequential SMTP
+          `--> bounded TLS/SASL IRC
 ```
 
 Concrete behavior includes:
@@ -75,7 +84,15 @@ Concrete behavior includes:
   review, and release-note review;
 * separate deterministic renderers for development mail, user mail, and IRC;
 * explicit `requirements.json` for durable-artifact review;
-* fail-closed behavior when required pre-push Git objects are unavailable.
+* fail-closed behavior when required pre-push Git objects are unavailable;
+* explicit `delivery-plan.json` binding artifacts to stable effect identities;
+* Git-ref attempt/delivered evidence scoped per event, destination, item, and
+  renderer template;
+* sequential development and user mail delivery in commit order;
+* stop-before-tail behavior after an uncertain transport effect;
+* explicit replay that resumes after already delivered predecessors;
+* bounded push-level IRC delivery and duplicate suppression;
+* cross-workspace state observation through an ordinary Git remote.
 
 All of this runs under `make check` without GitHub, Internet access, or
 production credentials.
@@ -86,11 +103,9 @@ The following remain real implementation work:
 
 * GitHub push-event adapter from `$GITHUB_EVENT_PATH` into the provider-neutral
   envelope;
-* generic delivery identity and state for push/commit destinations;
-* sequential external development-mail delivery in commit order;
-* generic user-mail and IRC delivery through the central queue;
-* bounded retry policy for transport failures distinct from uncertain effects;
-* operator replay spanning generic events;
+* central GitHub queue/workflow wiring for generic push delivery;
+* bounded retry policy for failures proven to occur before an external effect,
+  distinct from uncertain effects;
 * exact trailer cardinality and required-trailer rules once Codebook doctrine is
   normative enough to enforce;
 * durable `News:` and `Migration:` path validation;
@@ -121,12 +136,13 @@ normative Event Classification and Routing section for new commits.
 The next tranche should stay local-first:
 
 ```text
-1. define generic delivery identity for push and commit destinations
-2. feed rendered dev-mail files sequentially through loopback SMTP
-3. feed the bounded push IRC artifact through loopback IRC/SASL
-4. prove replay and uncertain-effect semantics for generic events
-5. add durable-artifact validators only where Codebook rules are exact
-6. only then add the GitHub push adapter
+1. implement the GitHub push adapter as locally testable code over recorded
+   event fixtures and disposable Git remotes
+2. prove normal, new/deleted branch, force-push, tag, and large-push provider
+   translation without embedding policy in workflow YAML
+3. add durable-artifact validators only where Codebook rules are exact
+4. define safe pre-effect retry classification; keep uncertain effects manual
+5. only then add the thin central GitHub push workflow and migrate callers
 ```
 
 The GitHub workflow should be the last and least interesting part.
