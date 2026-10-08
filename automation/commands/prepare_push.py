@@ -6,7 +6,7 @@ from pathlib import Path
 from automation.policy import PolicyError, classify_push
 from automation.push import collect_push
 from ._util import error
-from .render_push import write_artifacts
+from automation.artifacts import write_push_artifacts
 
 
 def parse_args(argv):
@@ -22,7 +22,7 @@ def main(argv=None):
     try:
         envelope = json.loads(Path(args.event_json).read_text(encoding="utf-8"))
         manifest = classify_push(collect_push(args.git_repository, envelope))
-        write_artifacts(manifest, args.output_dir)
+        write_push_artifacts(manifest, args.output_dir)
     except (OSError, ValueError, PolicyError, json.JSONDecodeError) as exc:
         return error(exc)
     print(manifest["event_id"])

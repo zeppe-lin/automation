@@ -7,7 +7,7 @@ from pathlib import Path
 from automation.github import fetch_release
 from automation.release import normalize_github_release
 from ._util import error
-from .render_release import write_artifacts
+from automation.artifacts import write_release_artifacts
 
 
 def parse_args(argv):
@@ -27,7 +27,7 @@ def main(argv=None):
             manifest = normalize_github_release(args.repository, args.tag, payload)
         else:
             manifest = fetch_release(args.repository, args.tag, os.environ.get("GITHUB_TOKEN"))
-        write_artifacts(manifest, args.output_dir)
+        write_release_artifacts(manifest, args.output_dir)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         return error(f"release preparation failed: {exc}")
     return 0

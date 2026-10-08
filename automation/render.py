@@ -3,6 +3,8 @@
 from .common import CONTROL_RE, clean_header, limit_utf8
 from .policy import TAGS
 
+PUSH_TEMPLATE_VERSION = 1
+
 
 def _ref_label(ref):
     for prefix in ("refs/heads/", "refs/tags/"):
@@ -46,6 +48,8 @@ def render_development_mail(manifest, commit):
     body += f"\n{commit_url}\n"
     return {
         "schema": 1,
+        "template": PUSH_TEMPLATE_VERSION,
+        "item_id": commit["sha"],
         "event_id": _event_id(manifest, commit),
         "destination": "mail-dev",
         "subject": f"[{project}:{ref}] {commit['short_sha']}: {title}",
@@ -113,6 +117,8 @@ def render_user_mail(manifest, commit):
 
     return {
         "schema": 1,
+        "template": PUSH_TEMPLATE_VERSION,
+        "item_id": commit["sha"],
         "event_id": _event_id(manifest, commit),
         "destination": "mail-user",
         "subject": f"{tags}[{project}] {summary}",
