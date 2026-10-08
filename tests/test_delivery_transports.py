@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import socket
 import smtplib
 import threading
@@ -11,15 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, ROOT / path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-mail = load("send_mail", "libexec/send-mail.py")
-irc = load("send_irc", "libexec/send-irc.py")
+from automation import irc, mail
 
 
 class MailTransportTest(unittest.TestCase):
@@ -55,7 +46,7 @@ class MailTransportTest(unittest.TestCase):
 
     def test_plain_smtp_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "ssl or starttls"):
-            mail.smtp_connection("example.invalid", 25, "plain")
+            mail.smtp_connection("example.invalid", 25, "plain", {})
 
     def test_remote_smtp_text_is_not_logged(self):
         error = smtplib.SMTPAuthenticationError(535, b"secret echoed by server")

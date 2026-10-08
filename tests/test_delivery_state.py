@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import os
 import subprocess
 import tempfile
@@ -9,11 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location(
-    "delivery_state", ROOT / "libexec" / "delivery-state.py"
-)
-state = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(state)
+from automation import gitstate as state
 
 
 class DeliveryStateTest(unittest.TestCase):
@@ -48,7 +43,7 @@ class DeliveryStateTest(unittest.TestCase):
 
     def test_claim_records_attempt(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
-            result = state.claim("zeppe-lin/pkgman", "v6.3", "irc")
+            result, _ = state.claim("zeppe-lin/pkgman", "v6.3", "irc")
         self.assertEqual(result, 0)
         self.assertIn(
             "refs/automation/delivery/release/zeppe-lin/pkgman/v6.3/irc/attempts/123-2",
@@ -57,21 +52,21 @@ class DeliveryStateTest(unittest.TestCase):
 
     def test_claim_skips_already_delivered(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
-            self.assertEqual(state.mark_delivered("zeppe-lin/pkgman", "v6.3", "mail-user"), 0)
+            self.assertEqual(state.mark_delivered("zeppe-lin/pkgman", "v6.3", "mail-user")[0], 0)
             self.assertEqual(
-                state.claim("zeppe-lin/pkgman", "v6.3", "mail-user"),
+                state.claim("zeppe-lin/pkgman", "v6.3", "mail-user")[0],
                 state.ALREADY_DELIVERED,
             )
 
     def test_claim_blocks_unresolved_attempt(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
-            self.assertEqual(state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev"), 0)
+            self.assertEqual(state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev")[0], 0)
             self.assertEqual(
-                state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev"),
+                state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev")[0],
                 state.UNRESOLVED_ATTEMPT,
             )
             self.assertEqual(
-                state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev", force=True),
+                state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev", force=True)[0],
                 0,
             )
 
