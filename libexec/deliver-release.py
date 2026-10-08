@@ -8,6 +8,7 @@ not reimplement the state machine.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,7 +22,11 @@ def parse_args(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("delivery_dir")
     parser.add_argument("destination", choices=("mail-user", "mail-dev", "irc"))
-    parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=os.environ.get("AUTOMATION_FORCE_REPLAY", "").lower() == "true",
+    )
     return parser.parse_args(argv)
 
 
@@ -39,9 +44,28 @@ def invoke_state(command, manifest, destination, force=False):
     return subprocess.run(argv, check=False).returncode
 
 
+
+def require_environment(destination):
+    if destination.startswith("mail-"):
+        required = ("SMTP_HOST", "MAIL_FROM", "MAIL_TO")
+        for name in required:
+            if not os.environ.get(name, "").strip():
+                raise ValueError(f"{name} is required")
+        username = os.environ.get("SMTP_USERNAME", "").strip()
+        password = os.environ.get("SMTP_PASSWORD", "")
+        if bool(username) != bool(password):
+            raise ValueError("SMTP_USERNAME and SMTP_PASSWORD must be configured together")
+        return
+
+    for name in ("IRC_HOST", "IRC_CHANNEL", "IRC_NICK", "IRC_SASL_PASSWORD"):
+        if not os.environ.get(name, "").strip():
+            raise ValueError(f"{name} is required")
+
+
 def run(args):
     delivery = Path(args.delivery_dir)
     manifest = json.loads((delivery / "manifest.json").read_text(encoding="utf-8"))
+    require_environment(args.destination)
 
     status = invoke_state("claim", manifest, args.destination, args.force)
     if status == ALREADY_DELIVERED:
