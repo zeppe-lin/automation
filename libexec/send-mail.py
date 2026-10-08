@@ -83,16 +83,22 @@ def build_message(payload, sender, recipient_text):
     return msg, envelope_sender, to
 
 
+def tls_context():
+    cafile = os.environ.get("AUTOMATION_CA_FILE", "").strip() or None
+    return ssl.create_default_context(cafile=cafile)
+
+
 def smtp_connection(host, port, security, timeout=30):
+    context = tls_context()
     if security == "ssl":
         return smtplib.SMTP_SSL(
-            host, port, timeout=timeout, context=ssl.create_default_context()
+            host, port, timeout=timeout, context=context
         )
 
     if security == "starttls":
         smtp = smtplib.SMTP(host, port, timeout=timeout)
         smtp.ehlo()
-        smtp.starttls(context=ssl.create_default_context())
+        smtp.starttls(context=context)
         smtp.ehlo()
         return smtp
 

@@ -165,7 +165,8 @@ class IRCClient:
 
 def connect(host, port):
     sock = socket.create_connection((host, port), timeout=20)
-    context = ssl.create_default_context()
+    cafile = os.environ.get("AUTOMATION_CA_FILE", "").strip() or None
+    context = ssl.create_default_context(cafile=cafile)
     return context.wrap_socket(sock, server_hostname=host)
 
 
