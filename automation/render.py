@@ -3,7 +3,9 @@
 from .common import CONTROL_RE, clean_header, limit_utf8
 from .policy import TAGS
 
-PUSH_TEMPLATE_VERSION = 1
+MAIL_DEV_TEMPLATE_VERSION = 1
+MAIL_USER_TEMPLATE_VERSION = 1
+IRC_TEMPLATE_VERSION = 2
 
 
 def _ref_label(ref):
@@ -48,7 +50,7 @@ def render_development_mail(manifest, commit):
     body += f"\n{commit_url}\n"
     return {
         "schema": 1,
-        "template": PUSH_TEMPLATE_VERSION,
+        "template": MAIL_DEV_TEMPLATE_VERSION,
         "item_id": commit["sha"],
         "event_id": _event_id(manifest, commit),
         "destination": "mail-dev",
@@ -117,7 +119,7 @@ def render_user_mail(manifest, commit):
 
     return {
         "schema": 1,
-        "template": PUSH_TEMPLATE_VERSION,
+        "template": MAIL_USER_TEMPLATE_VERSION,
         "item_id": commit["sha"],
         "event_id": _event_id(manifest, commit),
         "destination": "mail-user",
@@ -126,13 +128,57 @@ def render_user_mail(manifest, commit):
     }
 
 
+def _irc_url(manifest, commits):
+    url = manifest.get("compare_url")
+    if url:
+        return clean_header(url)
+    if commits:
+        last = commits[-1]
+        url = last.get("commit_url")
+        if url:
+            return clean_header(url)
+    return clean_header(_repository_url(manifest))
+
+
+def _bounded_irc(head, url, limit=360):
+    head = CONTROL_RE.sub("", " ".join(head.replace("\r", " ").replace("\n", " ").split()))
+    url = CONTROL_RE.sub("", " ".join(url.replace("\r", " ").replace("\n", " ").split()))
+    separator = " — "
+    url_bytes = len(url.encode("utf-8"))
+    separator_bytes = len(separator.encode("utf-8"))
+    if url_bytes + separator_bytes > limit:
+        # Canonical GitHub repository/commit/compare URLs are well below this
+        # bound. Fail closed rather than publishing a broken durable link.
+        raise ValueError("IRC durable URL exceeds message budget")
+    head_limit = limit - url_bytes - separator_bytes
+    return limit_utf8(head, head_limit) + separator + url
+
+
+def _ref_transition_summary(manifest):
+    ref_kind = manifest.get("ref_kind") or (
+        "branch" if manifest["ref"].startswith("refs/heads/") else "tag"
+    )
+    change = manifest.get("change", "update")
+    if manifest.get("forced"):
+        before = str(manifest.get("before", ""))[:12]
+        after = str(manifest.get("after", ""))[:12]
+        return f"branch rewritten {before} -> {after}"
+    return f"{ref_kind} {change}d" if change in {"create", "delete"} else f"{ref_kind} updated"
+
+
 def render_irc(manifest):
     commits = manifest["commits"]
-    if not commits:
-        return None
-
     project = clean_header(manifest["repository"].split("/", 1)[1])
     ref = clean_header(_ref_label(manifest["ref"]))
+    url = _irc_url(manifest, commits)
+
+    if not commits:
+        if manifest.get("before") == manifest.get("after"):
+            return None
+        prefix = "[force-push] " if manifest.get("forced") else ""
+        head = f"{prefix}{project}:{ref}: {_ref_transition_summary(manifest)}"
+        return _bounded_irc(head, url) + "\n"
+
     seen = {tag for commit in commits for tag in commit["classification"]["tags"]}
     prefix = "".join(f"[{tag}]" for tag in TAGS if tag in seen)
     if manifest.get("forced"):
@@ -147,14 +193,9 @@ def render_irc(manifest):
     if len(summaries) > len(shown):
         detail += f"; +{len(summaries) - len(shown)} more"
 
-    url = manifest.get("compare_url")
-    if not url:
-        last = commits[-1]
-        url = last.get("commit_url") or _repository_url(manifest)
     label = f"{prefix} " if prefix else ""
-    line = f"{label}{project}:{ref}: {len(commits)} commit(s): {detail} — {url}"
-    line = CONTROL_RE.sub("", " ".join(line.replace("\r", " ").replace("\n", " ").split()))
-    return limit_utf8(line, 360) + "\n"
+    head = f"{label}{project}:{ref}: {len(commits)} commit(s): {detail}"
+    return _bounded_irc(head, url) + "\n"
 
 
 def render_requirements(manifest):

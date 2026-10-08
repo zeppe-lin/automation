@@ -76,6 +76,8 @@ class PushArtifactTest(unittest.TestCase):
             )
             self.assertEqual(plan["deliveries"]["irc"][0]["item_id"], "push")
             self.assertEqual(plan["deliveries"]["mail-dev"][0]["template"], 1)
+            self.assertEqual(plan["deliveries"]["mail-user"][0]["template"], 1)
+            self.assertEqual(plan["deliveries"]["irc"][0]["template"], 2)
             payload = json.loads((output / "mail-dev/0001.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["item_id"], "a" * 40)
             self.assertEqual(payload["template"], 1)

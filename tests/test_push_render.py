@@ -62,16 +62,45 @@ class PushRenderTest(unittest.TestCase):
         self.assertIn("+1 more", irc)
         self.assertEqual(requirements[0]["requirements"], ["system-news", "release-note-review"])
 
-    def test_irc_summary_is_utf8_bounded(self):
+    def test_irc_summary_is_utf8_bounded_and_preserves_durable_url(self):
         manifest = self.manifest()
         manifest["commits"][0]["classification"]["summary"] = "Ж" * 500
         _, _, irc, _ = render_push(manifest)
-        self.assertLessEqual(len(irc.rstrip("\n").encode("utf-8")), 360)
+        line = irc.rstrip("\n")
+        self.assertLessEqual(len(line.encode("utf-8")), 360)
+        self.assertTrue(line.endswith(manifest["compare_url"]))
         irc.encode("utf-8")
 
-    def test_no_commit_push_has_no_irc_message(self):
+    def test_ref_lifecycle_pushes_keep_push_level_irc_awareness(self):
+        cases = (
+            ("branch", "delete", False, "branch deleted"),
+            ("tag", "create", False, "tag created"),
+            ("tag", "delete", False, "tag deleted"),
+            ("branch", "update", True, "branch rewritten"),
+        )
+        for ref_kind, change, forced, expected in cases:
+            manifest = self.manifest()
+            manifest["commits"] = []
+            manifest["ref_kind"] = ref_kind
+            manifest["change"] = change
+            manifest["forced"] = forced
+            manifest["before"] = "1" * 40
+            manifest["after"] = "2" * 40
+            if ref_kind == "tag":
+                manifest["ref"] = "refs/tags/v1.0"
+            with self.subTest(ref_kind=ref_kind, change=change, forced=forced):
+                dev, user, irc, requirements = render_push(manifest)
+                self.assertEqual(dev, [])
+                self.assertEqual(user, [])
+                self.assertIn(expected, irc)
+                self.assertTrue(irc.rstrip("\n").endswith(manifest["compare_url"]))
+                self.assertEqual(requirements, [])
+
+    def test_noop_push_has_no_irc_message(self):
         manifest = self.manifest()
         manifest["commits"] = []
+        manifest["before"] = "1" * 40
+        manifest["after"] = "1" * 40
         dev, user, irc, requirements = render_push(manifest)
         self.assertEqual(dev, [])
         self.assertEqual(user, [])

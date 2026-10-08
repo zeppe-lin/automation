@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from .release import render_release
-from .render import PUSH_TEMPLATE_VERSION, render_push
+from .render import IRC_TEMPLATE_VERSION, render_push
 
 
 def write_json(path, value):
@@ -83,7 +83,7 @@ def write_push_artifacts(manifest, output_dir):
                 "artifact": "irc.txt",
                 "event_id": manifest["event_id"],
                 "item_id": "push",
-                "template": PUSH_TEMPLATE_VERSION,
+                "template": IRC_TEMPLATE_VERSION,
             }
         )
 
