@@ -1,16 +1,19 @@
 # Automation issue #1 implementation status
 
 Issue #1 defines the migration from ad hoc GitHub notification workflows to an
-event-aware delivery pipeline. The repository currently implements one complete
-vertical slice: **published project releases**.
+event-aware delivery pipeline. The implementation now contains two deliberately
+different maturity levels:
+
+* published-release events have a central delivery path;
+* generic Git push events have a locally qualified collect/classify/route/render
+  path, but no production forge adapter or external delivery yet.
 
 This document records implementation state. It does not replace the issue or
 the Codebook.
 
 ## Implemented for release events
 
-The following issue #1 requirements have concrete implementation for published
-release events:
+The release vertical slice implements:
 
 | Requirement | Release-event status |
 | --- | --- |
@@ -18,92 +21,112 @@ release events:
 | Deterministic normalized manifest | Implemented |
 | Separate user-mail, development-mail, and IRC renderers | Implemented |
 | Bounded single-line IRC output | Implemented |
-| Central cross-repository queue | Implemented by the automation workflow concurrency group |
+| Central cross-repository queue | Implemented by automation workflow concurrency |
 | Secret-bearing transport isolated from source repositories | Implemented |
 | Direct SMTP and IRC transports without marketplace transport actions | Implemented |
 | Attempt-before-effect and delivered-after-effect evidence | Implemented with Git refs |
 | Refuse automatic replay of uncertain effects | Implemented |
 | Explicit operator replay | Implemented |
-| Dry-run rendered artifact | Implemented through manual workflow preparation |
+| Dry-run rendered artifact | Implemented |
 | Immutable third-party action pins | Enforced by local tests |
-| Local fixture tests | Implemented for release collection, SMTP, IRC, state, and end-to-end delivery |
+| Local behavioral transport tests | Implemented with loopback TLS SMTP and IRC/SASL |
 | Credential-safe diagnostics | Implemented for current SMTP/IRC clients |
 
-The release pipeline is:
+## Implemented locally for push events
+
+The generic push path now implements and locally qualifies:
 
 ```text
-NEWS.md
+push envelope
     |
     v
-published GitHub Release
+local Git observation
     |
     v
-release manifest
+normalized push manifest
     |
-    +--> user-mail rendering
-    +--> development-mail rendering
-    `--> IRC rendering
-            |
-            v
-       delivery claim
-            |
-            v
-       transport effect
-            |
-            v
-       delivered evidence
+    v
+Codebook tag classification
+    |
+    v
+routing + durable-requirement projection
+    |
+    +--> ordered development-mail files
+    +--> semantic user-mail files
+    `--> bounded IRC summary
 ```
 
-## Not yet implemented
+Concrete behavior includes:
 
-The general repository-event pipeline remains open work:
+* full `before..after` commit enumeration from Git, not `github.event.commits`;
+* topological oldest-first ordering;
+* branch creation without replaying history shared by existing refs;
+* branch deletion and empty-range representation;
+* force-push detection from the Git graph;
+* explicit tag create/delete representation without replaying pointed history;
+* arbitrarily large local commit ranges;
+* merge and revert commit preservation;
+* UTF-8 and shell-looking commit text treated only as data;
+* Git-native trailer parsing through `git interpret-trailers`;
+* exact lowercase maintained tags and canonical tag ordering;
+* rejection of new `[notify]` commits;
+* enforcement that `[breaking]` is combined with `[news]`;
+* current Codebook routing to development mail, user mail, IRC, system-news
+  review, and release-note review;
+* separate deterministic renderers for development mail, user mail, and IRC;
+* explicit `requirements.json` for durable-artifact review;
+* fail-closed behavior when required pre-push Git objects are unavailable.
 
-* push-event collection from `$GITHUB_EVENT_PATH`;
-* oldest-first Git commit enumeration from `before..after`;
-* explicit handling of branch creation, deletion, force-push, tag push, empty
-  ranges, and large pushes;
-* Codebook tag classification for `[news]`, `[security]`, `[breaking]`, and
-  `[deprecation]`;
-* Git trailer parsing and validation;
-* durable `News:` and `Migration:` artifact validation;
-* per-commit routing according to the Codebook matrix;
-* development commit mail in commit order;
-* user mail only for events whose classification requires it;
-* push/event IRC aggregation with omission accounting;
-* generic normalized event manifests and golden fixtures;
-* transport retry policy beyond explicit replay of uncertain effects;
-* operator replay tooling spanning all event types;
-* migration of existing callers from `.github-shared-workflows`;
-* retirement of the legacy notification workflows.
+All of this runs under `make check` without GitHub, Internet access, or
+production credentials.
+
+## Still open for issue #1
+
+The following remain real implementation work:
+
+* GitHub push-event adapter from `$GITHUB_EVENT_PATH` into the provider-neutral
+  envelope;
+* generic delivery identity and state for push/commit destinations;
+* sequential external development-mail delivery in commit order;
+* generic user-mail and IRC delivery through the central queue;
+* bounded retry policy for transport failures distinct from uncertain effects;
+* operator replay spanning generic events;
+* exact trailer cardinality and required-trailer rules once Codebook doctrine is
+  normative enough to enforce;
+* durable `News:` and `Migration:` path validation;
+* exact release-note decision validation;
+* policy for arbitrary unknown leading bracket prefixes;
+* provider semantics for ref classes outside branches and tags;
+* migration of callers from `.github-shared-workflows`;
+* retirement of `notify-irc.yml`, `notify-mail-dev.yml`, and
+  `notify-mail-tag.yml`.
 
 ## Codebook dependency
 
-The current Codebook already defines the maintained event tags and the broad
-routing matrix. Some repository-level enforcement details still need to remain
-synchronized with `zeppe-lin/codebook#1`, especially trailer cardinality,
-artifact-reference rules, and edge-case event semantics.
+The Codebook already gives automation enough authority to enforce maintained
+tag names, ordering, `[breaking]`/`[news]`, `[notify]` retirement, and the broad
+routing matrix.
 
-Automation must not invent missing doctrine to make implementation convenient.
-Where policy is not normative enough to validate mechanically, the correct next
-step is to amend the Codebook first.
+It does not yet define every trailer cardinality, durable-reference rule, or
+unknown-prefix diagnostic precisely enough for code to choose on its behalf.
+Automation therefore exposes those requirements but does not manufacture a
+stricter constitution inside this repository.
+
+There is also historical `[notify]` language elsewhere in the current Codebook.
+That is doctrine drift to resolve in the Codebook; automation follows the newer
+normative Event Classification and Routing section for new commits.
 
 ## Next tranche
 
-The next implementation tranche should begin with a provider-neutral local push
-collector and fixture manifest, not another GitHub workflow.
-
-A suitable order is:
+The next tranche should stay local-first:
 
 ```text
-1. collect a Git push fixture into a normalized manifest
-2. enumerate commits oldest first from a local fixture repository
-3. classify subject tags and trailers
-4. validate Codebook invariants
-5. derive routing decisions
-6. render deterministic channel files
-7. exercise all of the above with fixtures and golden output
-8. only then add a thin GitHub event adapter
+1. define generic delivery identity for push and commit destinations
+2. feed rendered dev-mail files sequentially through loopback SMTP
+3. feed the bounded push IRC artifact through loopback IRC/SASL
+4. prove replay and uncertain-effect semantics for generic events
+5. add durable-artifact validators only where Codebook rules are exact
+6. only then add the GitHub push adapter
 ```
 
-This preserves the repository rule: locally executable machinery first, forge
-adapter second.
+The GitHub workflow should be the last and least interesting part.

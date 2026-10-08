@@ -181,3 +181,50 @@ AUTOMATION_CA_FILE    optional explicit CA file; primarily for local fixtures
 ```
 
 The client never logs IRC protocol traffic or the base64 SASL payload.
+
+## `collect-push.py`
+
+```text
+collect-push.py GIT-REPOSITORY EVENT.json OUTPUT.json
+```
+
+Observe one provider-neutral push envelope against a local Git repository and
+write a schema-1 push manifest. Commit enumeration, ancestry, merge topology,
+commit messages, trailers, and diffstats come from Git rather than a webhook's
+bounded commit list.
+
+The command performs no network access. A missing `before` or `after` object
+that is required to interpret the push is a hard error; callers must provide a
+repository with sufficient history.
+
+## `prepare-push.py`
+
+```text
+prepare-push.py GIT-REPOSITORY EVENT.json OUTPUT-DIR
+```
+
+Run the local push pipeline through collection, Codebook classification,
+routing, and deterministic rendering. The output directory contains:
+
+```text
+manifest.json
+requirements.json
+mail-dev/NNNN.json
+mail-user/NNNN.json
+irc.txt                 when the push contains routed commits
+```
+
+No external delivery is performed.
+
+## `render-push.py`
+
+```text
+render-push.py MANIFEST.json OUTPUT-DIR
+```
+
+Render an already-classified push manifest without repository or network I/O.
+Development mail is one file per commit in commit order. User mail exists only
+for commits whose Codebook classification routes to the user audience. IRC is
+a bounded UTF-8 push summary. `requirements.json` exposes durable system-news
+and release-note review requirements without pretending to validate doctrine
+that the Codebook has not specified precisely enough yet.

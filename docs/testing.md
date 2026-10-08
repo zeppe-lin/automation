@@ -29,6 +29,11 @@ unit / contract tests
     forge adapter command construction
     workflow-policy checks
 
+behavioral Git integration tests
+    real commit graphs and ref transitions
+    oldest-first collection and force detection
+    classification, routing, and rendered artifacts
+
 loopback integration tests
     verified TLS SMTP client <-> fixture SMTP server
     verified TLS IRC/SASL client <-> fixture IRC server
@@ -126,3 +131,45 @@ For deeper debugging, instantiate the fixture servers from Python and invoke the
 real client with `AUTOMATION_CA_FILE` pointing at
 `tests/fixtures/tls/localhost.crt`. Do not weaken TLS verification and do not
 substitute production credentials into fixture tests.
+
+## Real Git push qualification
+
+Push-event tests build disposable Git repositories and drive the real command
+entry points. They do not mock repository history.
+
+The integration suite currently exercises:
+
+```text
+ordinary multi-commit update
+oldest-first topological enumeration
+UTF-8 and shell-looking commit text
+new branch with unique commits
+new branch pointing at already-known history
+branch deletion
+empty update
+non-fast-forward / force push
+annotated tag creation and deletion
+30-commit push beyond webhook payload limits
+merge commits
+revert commits
+missing pre-push objects
+Codebook classification failure
+obsolete [notify] rejection
+channel artifact ordering
+```
+
+This is intentionally stronger than constructing a synthetic manifest and
+calling a renderer. The collector is qualified against Git's observable graph
+and commit objects.
+
+A complete local push dry run is:
+
+```sh
+python3 libexec/prepare-push.py \
+    /path/to/full/repository \
+    event.json \
+    /tmp/push-delivery
+```
+
+Inspect `manifest.json`, `requirements.json`, `mail-dev/`, `mail-user/`, and
+`irc.txt` before any forge adapter or external delivery is introduced.

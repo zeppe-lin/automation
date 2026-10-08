@@ -33,6 +33,9 @@ transport actuator
 
 Keep these boundaries explicit:
 
+* `automation/` owns reusable semantics and must be directly importable by tests;
+* `automation/commands/` composes library operations into command contracts;
+* `libexec/` contains thin executable adapters only, not reusable implementation;
 * provider adapters may know GitHub event and API shapes;
 * normalized manifests must not contain credentials;
 * renderers perform no external I/O;
@@ -68,7 +71,13 @@ credentials, or Internet access. Network integration tests use loopback fixture
 servers and synthetic credentials only.
 
 A workflow should be treated as an uninteresting adapter after the local suite
-is green.
+is green. The same rule applies one layer lower: an executable in `libexec/`
+should be an uninteresting adapter after its imported library code is correct.
+
+Do not make library components invoke sibling `libexec` programs to reuse
+behavior. Import the owning module and call the explicit interface. Process
+boundaries are reserved for real external authorities such as Git, `gh`, SMTP,
+and IRC.
 
 ## Secrets and logs
 

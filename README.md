@@ -188,41 +188,39 @@ gitlab/
 Provider adapters must remain thin enough that the event model and
 rendering behavior can be tested without the provider.
 
-## Planned Repository Layout
+## Repository Layout
 
 ```text
-README.md
-CONTRIBUTING.md
-MAINTAINING.md
-COPYING
-COPYRIGHT
-.editorconfig
-
-bin/
+automation/
+    commands/
 libexec/
-templates/
 tests/
+    integration/
+    support/
 docs/
 
 .github/
+    actions/
     workflows/
-
-gitlab/
 ```
 
-The intended responsibilities are:
+The maintained responsibilities are:
 
-| Path                 | Responsibility                                              |
-| -------------------- | ----------------------------------------------------------- |
-| `bin/`               | Public command-line entry points                            |
-| `libexec/`           | Internal pipeline stages and provider adapters              |
-| `templates/`         | Channel-specific message templates                          |
-| `tests/`             | Fixtures, expected output, and failure cases                |
-| `docs/`              | Event schema, transport, replay, and operator documentation |
-| `.github/workflows/` | GitHub Actions integration                                  |
-| `gitlab/`            | Future GitLab CI integration                                |
+| Path                    | Responsibility                                             |
+| ----------------------- | ---------------------------------------------------------- |
+| `automation/`           | Importable provider-neutral engine and explicit adapters   |
+| `automation/commands/`  | Command-line composition and argument/error handling       |
+| `libexec/`              | Thin executable membrane into `automation.commands`        |
+| `tests/`                | Unit and contract qualification                            |
+| `tests/integration/`    | Real Git and loopback protocol behavior                    |
+| `tests/support/`        | Local fixture repositories and protocol servers            |
+| `docs/`                 | Event schema, transport, replay, and operator documentation|
+| `.github/actions/`      | Thin caller-facing GitHub adapters                         |
+| `.github/workflows/`    | GitHub event, permission, artifact, and secret plumbing    |
 
-The layout may evolve while the initial pipeline is implemented.
+Public commands may be added under `bin/` when an operator-facing interface is
+justified. Internal implementation must not migrate back into `libexec/` or
+workflow YAML merely because those surfaces are executable.
 
 The boundary between the generic engine and forge adapters must remain.
 
