@@ -113,6 +113,70 @@ class PushDeliveryTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(message, "mail-user: nothing to deliver")
 
+
+
+    def test_manifest_policy_projection_is_revalidated_before_claim(self):
+        output = self.root / "delivery-policy"
+        write_push_artifacts(self.manifest(), output)
+        manifest_path = output / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["commits"][0]["classification"]["destinations"].append("mail-user")
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with mock.patch.dict(os.environ, self.environment(), clear=True):
+            with self.assertRaisesRegex(ValueError, "classification is not derived"):
+                deliver_push(output, "mail-dev", env=os.environ)
+
+        refs = subprocess.run(
+            ["git", "-C", str(self.state), "for-each-ref", "--format=%(refname)", "refs/automation"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertEqual(refs, "")
+
+    def test_delivery_plan_order_is_bound_to_manifest_before_claim(self):
+        manifest = self.manifest()
+        second = dict(manifest["commits"][0])
+        second["sha"] = "b" * 40
+        second["short_sha"] = second["sha"][:12]
+        second["title"] = "ordinary: two"
+        second["commit_url"] = "https://github.com/zeppe-lin/example/commit/" + second["sha"]
+        manifest["commits"].append(second)
+        manifest["commit_count"] = 2
+        manifest = classify_push(manifest)
+
+        output = self.root / "delivery-order"
+        write_push_artifacts(manifest, output)
+        plan_path = output / "delivery-plan.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["deliveries"]["mail-dev"].reverse()
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with mock.patch.dict(os.environ, self.environment(), clear=True):
+            with self.assertRaisesRegex(ValueError, "order does not match"):
+                deliver_push(output, "mail-dev", env=os.environ)
+
+        refs = subprocess.run(
+            ["git", "-C", str(self.state), "for-each-ref", "--format=%(refname)", "refs/automation"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        self.assertEqual(refs, "")
+
+    def test_delivery_plan_event_identity_is_bound_to_manifest_before_claim(self):
+        output = self.root / "delivery-identity"
+        write_push_artifacts(self.manifest(), output)
+        plan_path = output / "delivery-plan.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["deliveries"]["mail-dev"][0]["event_id"] += ":forged"
+        payload_path = output / "mail-dev/0001.json"
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        payload["event_id"] = plan["deliveries"]["mail-dev"][0]["event_id"]
+        payload_path.write_text(json.dumps(payload), encoding="utf-8")
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+        with mock.patch.dict(os.environ, self.environment(), clear=True):
+            with self.assertRaisesRegex(ValueError, "event ID does not match manifest item"):
+                deliver_push(output, "mail-dev", env=os.environ)
+
     def test_push_key_separates_events_and_template_versions(self):
         manifest = self.manifest()
         one = gitstate.push_key(
