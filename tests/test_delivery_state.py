@@ -2,10 +2,11 @@
 
 import importlib.util
 import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
-
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -16,43 +17,63 @@ spec.loader.exec_module(state)
 
 
 class DeliveryStateTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name) / "repo"
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "config", "user.name", "Test"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "config", "user.email", "test@example.invalid"], check=True)
+        (self.repo / "seed").write_text("seed\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repo), "add", "seed"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "seed"], check=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
     def environment(self):
         return {
-            "GITHUB_REPOSITORY": "zeppe-lin/automation",
-            "GITHUB_TOKEN": "token",
-            "GITHUB_SHA": "a" * 40,
-            "GITHUB_RUN_ID": "123",
-            "GITHUB_RUN_ATTEMPT": "2",
+            "AUTOMATION_STATE_REPOSITORY": str(self.repo),
+            "AUTOMATION_RUN_ID": "123",
+            "AUTOMATION_RUN_ATTEMPT": "2",
         }
 
-    @mock.patch.object(state, "create_ref")
-    @mock.patch.object(state, "matching_refs")
-    def test_claim_records_attempt(self, matching, create):
-        matching.side_effect = [[], []]
+    def refs(self):
+        result = subprocess.run(
+            ["git", "-C", str(self.repo), "for-each-ref", "--format=%(refname)", "refs/automation"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.splitlines()
+
+    def test_claim_records_attempt(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
-            result = state.claim("zeppe-lin/pkgman", "v6.3", "irc", False)
+            result = state.claim("zeppe-lin/pkgman", "v6.3", "irc")
         self.assertEqual(result, 0)
-        create.assert_called_once_with(
-            "zeppe-lin/automation",
-            "automation/delivery/release/zeppe-lin/pkgman/v6.3/irc/attempts/123-2",
-            "a" * 40,
-            "token",
+        self.assertIn(
+            "refs/automation/delivery/release/zeppe-lin/pkgman/v6.3/irc/attempts/123-2",
+            self.refs(),
         )
 
-    @mock.patch.object(state, "matching_refs")
-    def test_claim_skips_already_delivered(self, matching):
-        ref = "refs/automation/delivery/release/zeppe-lin/pkgman/v6.3/mail-user/delivered"
-        matching.return_value = [{"ref": ref}]
+    def test_claim_skips_already_delivered(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
-            result = state.claim("zeppe-lin/pkgman", "v6.3", "mail-user", False)
-        self.assertEqual(result, state.ALREADY_DELIVERED)
+            self.assertEqual(state.mark_delivered("zeppe-lin/pkgman", "v6.3", "mail-user"), 0)
+            self.assertEqual(
+                state.claim("zeppe-lin/pkgman", "v6.3", "mail-user"),
+                state.ALREADY_DELIVERED,
+            )
 
-    @mock.patch.object(state, "matching_refs")
-    def test_claim_blocks_unresolved_attempt(self, matching):
-        matching.side_effect = [[], [{"ref": "refs/automation/delivery/release/x"}]]
+    def test_claim_blocks_unresolved_attempt(self):
         with mock.patch.dict(os.environ, self.environment(), clear=False):
-            result = state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev", False)
-        self.assertEqual(result, state.UNRESOLVED_ATTEMPT)
+            self.assertEqual(state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev"), 0)
+            self.assertEqual(
+                state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev"),
+                state.UNRESOLVED_ATTEMPT,
+            )
+            self.assertEqual(
+                state.claim("zeppe-lin/pkgman", "v6.3", "mail-dev", force=True),
+                0,
+            )
 
     def test_ref_namespace_rejects_untrusted_source(self):
         with self.assertRaisesRegex(ValueError, "invalid source repository"):

@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""Maintain durable release-delivery claims in Git refs.
+"""Maintain durable release-delivery state in ordinary Git refs.
 
-A claim is written before external I/O and a delivered marker only after the
-transport reports success. Unresolved claims require explicit operator replay.
+The command deliberately knows nothing about GitHub's API. It operates on a
+local Git repository and may mirror refs to one configured remote. This keeps
+the state machine locally testable while allowing GitHub Actions to use the
+same code with the checked-out automation repository.
 """
 
-
-import json
 import os
 import re
+import subprocess
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
+from pathlib import Path
 
 
 ALREADY_DELIVERED = 20
 UNRESOLVED_ATTEMPT = 21
 REPOSITORY_RE = re.compile(r"^(?P<owner>[A-Za-z0-9_.-]+)/(?P<name>[A-Za-z0-9_.-]+)$")
 TAG_RE = re.compile(r"^v[0-9][0-9A-Za-z]*(?:\.[0-9A-Za-z]+)+(?:[-+._][0-9A-Za-z.-]+)?$")
+DESTINATIONS = {"mail-user", "mail-dev", "irc"}
 
 
 def required(name):
@@ -28,35 +28,25 @@ def required(name):
     return value
 
 
-def api(method, path, token, payload=None):
-    url = "https://api.github.com" + path
-    data = None
-    if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "User-Agent": "zeppe-lin-automation",
-            "X-GitHub-Api-Version": "2026-03-10",
-        },
+def run_git(repository, *args, check=True):
+    command = ["git", "-C", str(repository), *args]
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            if response.status == 204:
-                return None
-            return json.load(response)
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        detail = error.read().decode("utf-8", "replace")
-        raise ValueError(f"GitHub state API failed: HTTP {error.code}: {detail}") from error
-    except (urllib.error.URLError, TimeoutError) as error:
-        raise ValueError(f"GitHub state API failed: {error}") from error
+    if check and result.returncode != 0:
+        raise ValueError("git delivery-state operation failed")
+    return result
+
+
+def validate_git_repository(repository):
+    repository = Path(repository)
+    result = run_git(repository, "rev-parse", "--git-dir", check=False)
+    if result.returncode != 0:
+        raise ValueError(f"not a Git repository: {repository}")
+    return repository
 
 
 def ref_base(source_repository, tag, destination):
@@ -65,41 +55,73 @@ def ref_base(source_repository, tag, destination):
         raise ValueError(f"invalid source repository: {source_repository}")
     if not TAG_RE.fullmatch(tag):
         raise ValueError(f"invalid release tag: {tag}")
+    if destination not in DESTINATIONS:
+        raise ValueError(f"unsupported destination: {destination}")
     return (
-        "automation/delivery/release/"
+        "refs/automation/delivery/release/"
         f"{match.group('owner')}/{match.group('name')}/{tag}/{destination}"
     )
 
 
-def matching_refs(repository, prefix, token):
-    quoted = urllib.parse.quote(prefix, safe="/")
-    result = api("GET", f"/repos/{repository}/git/matching-refs/{quoted}", token)
-    return result or []
+def local_refs(repository, prefix):
+    result = run_git(repository, "for-each-ref", "--format=%(refname)", prefix)
+    return [line for line in result.stdout.splitlines() if line]
 
 
-def create_ref(repository, ref, sha, token):
-    return api(
-        "POST",
-        f"/repos/{repository}/git/refs",
-        token,
-        {"ref": "refs/" + ref, "sha": sha},
+def remote_refs(repository, remote, prefix):
+    result = run_git(repository, "ls-remote", "--refs", remote, prefix + "*")
+    refs = []
+    for line in result.stdout.splitlines():
+        fields = line.split(None, 1)
+        if len(fields) == 2:
+            refs.append(fields[1])
+    return refs
+
+
+def refs(repository, remote, prefix):
+    if remote:
+        return remote_refs(repository, remote, prefix)
+    return local_refs(repository, prefix)
+
+
+def write_ref(repository, remote, ref, sha):
+    run_git(repository, "update-ref", ref, sha)
+    if remote:
+        result = run_git(repository, "push", remote, f"{ref}:{ref}", check=False)
+        if result.returncode != 0:
+            run_git(repository, "update-ref", "-d", ref, check=False)
+            raise ValueError("failed to publish delivery-state ref")
+
+
+def state_context():
+    repository = validate_git_repository(
+        os.environ.get("AUTOMATION_STATE_REPOSITORY", ".")
     )
+    remote = os.environ.get("AUTOMATION_STATE_REMOTE", "").strip() or None
+    sha = os.environ.get("AUTOMATION_STATE_SHA", "").strip()
+    if not sha:
+        sha = run_git(repository, "rev-parse", "HEAD").stdout.strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+        raise ValueError("AUTOMATION_STATE_SHA is not a valid object id")
+    run_id = os.environ.get("AUTOMATION_RUN_ID", "local").strip() or "local"
+    run_attempt = os.environ.get("AUTOMATION_RUN_ATTEMPT", "1").strip() or "1"
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", run_id):
+        raise ValueError("AUTOMATION_RUN_ID contains invalid characters")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", run_attempt):
+        raise ValueError("AUTOMATION_RUN_ATTEMPT contains invalid characters")
+    return repository, remote, sha, run_id, run_attempt
 
 
-def claim(source_repository, tag, destination, force):
-    state_repository = required("GITHUB_REPOSITORY")
-    token = required("GITHUB_TOKEN")
-    sha = required("GITHUB_SHA")
-    run_id = required("GITHUB_RUN_ID")
-    run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1").strip() or "1"
-
+def claim(source_repository, tag, destination, force=False):
+    repository, remote, sha, run_id, run_attempt = state_context()
     base = ref_base(source_repository, tag, destination)
-    delivered = matching_refs(state_repository, base + "/delivered", token)
-    if any(item.get("ref") == "refs/" + base + "/delivered" for item in delivered):
+    delivered_ref = base + "/delivered"
+
+    if delivered_ref in refs(repository, remote, delivered_ref):
         print("already delivered")
         return ALREADY_DELIVERED
 
-    attempts = matching_refs(state_repository, base + "/attempts/", token)
+    attempts = refs(repository, remote, base + "/attempts/")
     if attempts and not force:
         print(
             "error: unresolved prior delivery attempt; explicit replay is required",
@@ -108,24 +130,21 @@ def claim(source_repository, tag, destination, force):
         return UNRESOLVED_ATTEMPT
 
     attempt_ref = f"{base}/attempts/{run_id}-{run_attempt}"
-    create_ref(state_repository, attempt_ref, sha, token)
+    write_ref(repository, remote, attempt_ref, sha)
     print("claimed " + attempt_ref)
     return 0
 
 
 def mark_delivered(source_repository, tag, destination):
-    state_repository = required("GITHUB_REPOSITORY")
-    token = required("GITHUB_TOKEN")
-    sha = required("GITHUB_SHA")
+    repository, remote, sha, _, _ = state_context()
     base = ref_base(source_repository, tag, destination)
     delivered_ref = base + "/delivered"
 
-    existing = matching_refs(state_repository, delivered_ref, token)
-    if any(item.get("ref") == "refs/" + delivered_ref for item in existing):
+    if delivered_ref in refs(repository, remote, delivered_ref):
         print("already delivered")
         return 0
 
-    create_ref(state_repository, delivered_ref, sha, token)
+    write_ref(repository, remote, delivered_ref, sha)
     print("marked delivered " + delivered_ref)
     return 0
 
@@ -139,15 +158,18 @@ def main():
         return 2
 
     command, repository, tag, destination = sys.argv[1:5]
-    force = "--force" in sys.argv[5:]
-    if destination not in {"mail-user", "mail-dev", "irc"}:
-        print(f"error: unsupported destination: {destination}", file=sys.stderr)
+    force = sys.argv[5:] == ["--force"]
+    if sys.argv[5:] and not force:
+        print("error: unsupported argument", file=sys.stderr)
         return 2
 
     try:
         if command == "claim":
             return claim(repository, tag, destination, force)
         if command == "delivered":
+            if force:
+                print("error: --force is valid only with claim", file=sys.stderr)
+                return 2
             return mark_delivered(repository, tag, destination)
         print(f"error: unsupported command: {command}", file=sys.stderr)
         return 2
