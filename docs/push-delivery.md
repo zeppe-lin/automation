@@ -24,9 +24,10 @@ Git history + push envelope
 ```
 
 The provider-neutral engine therefore remains usable without GitHub Actions.
-The future forge workflow is responsible only for supplying a complete Git
-repository, carrying the prepared artifact between isolation boundaries,
-exposing destination credentials, and invoking the same local delivery command.
+The forge workflow is responsible only for materializing a complete Git
+repository through the local provider adapter, carrying the prepared artifact
+between isolation boundaries, exposing destination credentials, and invoking
+the same local delivery command.
 
 ## Delivery plan
 

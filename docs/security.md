@@ -105,6 +105,24 @@ If a service cannot provide authenticated TLS, change the transport or place a
 trusted local relay in front of it. Do not add an insecure mode to make a
 workflow pass.
 
+
+## Source repository acquisition
+
+Push preparation treats the source repository as untrusted data. The central
+GitHub adapter materializes it into a new bare repository and never checks out a
+source working tree.
+
+Git acquisition must not execute repository-owned hooks, filters, submodules, or
+remote helpers. Ambient user/system Git configuration is suppressed for the
+materialization subprocesses and allowed protocols are restricted to the
+production HTTPS path plus local `file` remotes used by tests.
+
+The production remote URL is derived from the already validated `owner/name`
+repository identity. A dispatch payload cannot select an arbitrary network
+endpoint. If an exact `before` or `after` object cannot be fetched, preparation
+fails closed instead of consulting the webhook commit list as replacement
+history.
+
 ## Failure semantics
 
 A destination is claimed before network I/O and marked delivered only after the

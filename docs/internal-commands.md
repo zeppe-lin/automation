@@ -245,3 +245,31 @@ for commits whose Codebook classification routes to the user audience. IRC is
 a bounded UTF-8 push summary. `requirements.json` exposes durable system-news
 and release-note review requirements without pretending to validate doctrine
 that the Codebook has not specified precisely enough yet.
+
+## `queue-github-push.py`
+
+```text
+queue-github-push.py GITHUB-EVENT.json [--automation-repository OWNER/NAME]
+```
+
+Normalize one GitHub push event and send a `push-observed`
+`repository_dispatch` to the central automation repository. `GH_TOKEN` is
+required in the environment.
+
+Only the provider-neutral repository/ref/object coordinates are dispatched.
+GitHub `commits`, `head_commit`, and `forced` fields are not forwarded.
+
+## `prepare-github-push.py`
+
+```text
+prepare-github-push.py DISPATCH.json GIT-REPOSITORY OUTPUT-DIR [--remote URL]
+```
+
+Decode one central `push-observed` dispatch, materialize the required Git state
+into a new bare repository, and run the ordinary provider-neutral push pipeline.
+
+Without `--remote`, the source remote is derived from the validated Zeppe-Lin
+repository identity on `github.com`. `--remote` exists for local qualification
+against disposable remotes; it is not needed by the production workflow.
+
+The command checks out no source files and accepts no transport credentials.

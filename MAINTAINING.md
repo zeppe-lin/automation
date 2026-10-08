@@ -37,6 +37,10 @@ Keep these boundaries explicit:
 * `automation/commands/` composes library operations into command contracts;
 * `libexec/` contains thin executable adapters only, not reusable implementation;
 * provider adapters may know GitHub event and API shapes;
+* source-side provider adapters must forward coordinates, not provider commit
+  bodies or policy decisions;
+* provider repository acquisition must use a bare workspace and must not execute
+  source-tree hooks, filters, or remote helpers;
 * normalized manifests must not contain credentials;
 * renderers perform no external I/O;
 * delivery state is recorded before and after external effects;

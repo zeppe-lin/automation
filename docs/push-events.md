@@ -156,8 +156,9 @@ and the real SMTP/IRC transports. Development and user mail are submitted
 sequentially per destination; unresolved effects stop later messages until an
 operator explicitly replays them. IRC remains one bounded push-level effect.
 
-The remaining boundary is the forge: there is still no GitHub push-event
-adapter or push-delivery workflow. Exact durable-artifact validation also
+The GitHub provider boundary is now implemented separately from this engine.
+`docs/github-push.md` describes the source-side event adapter, bare repository
+materialization, and central dry-run workflow. Exact durable-artifact validation
 remains coupled to unfinished Codebook doctrine.
 
-That is a boundary, not missing YAML.
+The generic event semantics in this document remain provider-neutral.

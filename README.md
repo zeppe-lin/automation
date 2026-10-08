@@ -228,6 +228,10 @@ The provider-neutral push path, including ordered external delivery and its
 Git-backed evidence model, is documented in `docs/push-events.md` and
 `docs/push-delivery.md`.
 
+The GitHub provider membrane and caller migration path are documented in
+`docs/github-push.md`. GitHub event payloads are normalized before they enter
+the generic engine; source repositories do not receive SMTP or IRC credentials.
+
 ## Current Status
 
 This repository is in bootstrap and migration state.

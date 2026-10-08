@@ -5,8 +5,9 @@ event-aware delivery pipeline. The implementation now contains two deliberately
 different maturity levels:
 
 * published-release events have a central delivery path;
-* generic Git push events have a locally qualified collect/classify/route/render
-  path, but no production forge adapter or external delivery yet.
+* generic Git push events now have a locally qualified GitHub adapter, central
+  dry-run workflow, provider-neutral processing path, and external-delivery
+  controller.
 
 This document records implementation state. It does not replace the issue or
 the Codebook.
@@ -101,9 +102,11 @@ production credentials.
 
 The following remain real implementation work:
 
-* GitHub push-event adapter from `$GITHUB_EVENT_PATH` into the provider-neutral
-  envelope;
-* central GitHub queue/workflow wiring for generic push delivery;
+* migration of representative caller repositories through the GitHub push
+  adapter and comparison of dry-run output against legacy delivery;
+* production enablement of generic push delivery after that comparison;
+* a stronger durable central queue/replay surface beyond the forge's finite
+  scheduling queue;
 * bounded retry policy for failures proven to occur before an external effect,
   distinct from uncertain effects;
 * exact trailer cardinality and required-trailer rules once Codebook doctrine is
@@ -133,16 +136,20 @@ normative Event Classification and Routing section for new commits.
 
 ## Next tranche
 
-The next tranche should stay local-first:
+The GitHub provider boundary is now implemented as local code and the workflow
+is deliberately thin. The next work should not add more workflow machinery.
 
 ```text
-1. implement the GitHub push adapter as locally testable code over recorded
-   event fixtures and disposable Git remotes
-2. prove normal, new/deleted branch, force-push, tag, and large-push provider
-   translation without embedding policy in workflow YAML
-3. add durable-artifact validators only where Codebook rules are exact
-4. define safe pre-effect retry classification; keep uncertain effects manual
-5. only then add the thin central GitHub push workflow and migrate callers
+1. migrate one representative repository in dry-run mode and compare rendered
+   output with the legacy notification path
+2. implement durable News:/Migration:/Release-Note validation only after the
+   remaining Codebook doctrine is made exact
+3. classify failures that are provably pre-effect and add bounded retry only to
+   that class; keep uncertain effects manual
+4. provide a generic operator replay interface rather than workflow-specific
+   reconstruction
+5. replace the finite forge scheduling queue with durable queued event state if
+   production load requires stronger admission guarantees
+6. migrate remaining callers and retire .github-shared-workflows only after
+   duplicate external delivery is impossible
 ```
-
-The GitHub workflow should be the last and least interesting part.
