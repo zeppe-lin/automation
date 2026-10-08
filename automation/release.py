@@ -17,8 +17,9 @@ def normalize_github_release(repository, tag, payload, allowed_owner="zeppe-lin"
         raise ValueError("GitHub release has no release notes")
 
     html_url = payload.get("html_url")
-    if not isinstance(html_url, str) or not html_url.startswith("https://github.com/"):
-        raise ValueError("GitHub release has no valid release URL")
+    expected_url = f"https://github.com/{repository}/releases/tag/{tag}"
+    if html_url != expected_url:
+        raise ValueError("GitHub release URL does not match repository and tag")
 
     title = payload.get("name")
     if not isinstance(title, str) or not title.strip():

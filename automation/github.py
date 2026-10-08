@@ -60,13 +60,38 @@ def publish_release(tag, notes, title=None, prerelease=False, env=os.environ):
     if not env.get("GH_TOKEN", "").strip():
         raise ValueError("GH_TOKEN is required")
     validate_release_tag(tag)
-    if gh("release", "view", tag, check=False, env=env).returncode == 0:
+    expected_title = title or tag
+    expected_notes = Path(notes).read_text(encoding="utf-8").strip()
+    if not expected_notes:
+        raise ValueError("release notes are empty")
+
+    existing = gh(
+        "release", "view", tag,
+        "--json", "tagName,name,body,isDraft,isPrerelease",
+        check=False, env=env,
+    )
+    if existing.returncode == 0:
+        try:
+            payload = json.loads(existing.stdout)
+        except json.JSONDecodeError as error:
+            raise ValueError("existing GitHub release state is invalid") from error
+        if payload.get("tagName") != tag:
+            raise ValueError("existing GitHub release tag does not match")
+        if payload.get("isDraft") is not False:
+            raise ValueError("existing GitHub release is a draft")
+        if payload.get("isPrerelease") is not bool(prerelease):
+            raise ValueError("existing GitHub release prerelease state differs")
+        if payload.get("name") != expected_title:
+            raise ValueError("existing GitHub release title differs")
+        body = payload.get("body")
+        if not isinstance(body, str) or body.strip() != expected_notes:
+            raise ValueError("existing GitHub release notes differ from NEWS")
         return False
 
     command = [
         "release", "create", tag,
         "--verify-tag", "--fail-on-no-commits",
-        "--title", title or tag, "--notes-file", str(notes),
+        "--title", expected_title, "--notes-file", str(notes),
     ]
     if prerelease:
         command.append("--prerelease")

@@ -22,7 +22,11 @@ class GitHubAdapterTest(unittest.TestCase):
             "  if [ \"$previous\" = '--input' ] && [ -n \"${FAKE_GH_INPUT:-}\" ]; then cp \"$arg\" \"$FAKE_GH_INPUT\"; fi\n"
             "  previous=$arg\n"
             "done\n"
-            "if [ \"$1 $2\" = 'release view' ]; then exit ${FAKE_RELEASE_EXISTS:-1}; fi\n"
+            "if [ \"$1 $2\" = 'release view' ]; then\n"
+            "  code=${FAKE_RELEASE_EXISTS:-1}\n"
+            "  if [ \"$code\" -eq 0 ]; then printf '%s\\n' \"$FAKE_RELEASE_JSON\"; fi\n"
+            "  exit \"$code\"\n"
+            "fi\n"
             "exit 0\n",
             encoding="utf-8",
         )
@@ -52,6 +56,44 @@ class GitHubAdapterTest(unittest.TestCase):
             self.assertIn("release create v6.3", commands)
             self.assertNotIn("synthetic-token", commands)
 
+
+
+    def test_existing_release_must_match_news_before_idempotent_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            log = self.fake_gh(tmpdir)
+            notes = tmpdir / "notes.md"
+            notes.write_text("Release notes.\n", encoding="utf-8")
+            env = self.environment(tmpdir, log)
+            env["FAKE_RELEASE_EXISTS"] = "0"
+            env["FAKE_RELEASE_JSON"] = json.dumps({
+                "tagName": "v6.3",
+                "name": "pkgman v6.3",
+                "body": "Release notes.\n",
+                "isDraft": False,
+                "isPrerelease": False,
+            })
+            result = subprocess.run(
+                [str(ROOT / "libexec" / "publish-github-release.py"), "v6.3", str(notes), "--name", "pkgman v6.3"],
+                env=env, check=False, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("already published", result.stdout)
+            self.assertNotIn("release create", log.read_text(encoding="utf-8"))
+
+            env["FAKE_RELEASE_JSON"] = json.dumps({
+                "tagName": "v6.3",
+                "name": "pkgman v6.3",
+                "body": "Stale notes.\n",
+                "isDraft": False,
+                "isPrerelease": False,
+            })
+            mismatch = subprocess.run(
+                [str(ROOT / "libexec" / "publish-github-release.py"), "v6.3", str(notes), "--name", "pkgman v6.3"],
+                env=env, check=False, capture_output=True, text=True,
+            )
+            self.assertNotEqual(mismatch.returncode, 0)
+            self.assertIn("notes differ from NEWS", mismatch.stderr)
 
     def test_push_dispatch_contains_only_normalized_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:

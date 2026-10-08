@@ -39,6 +39,18 @@ class CollectReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             release.normalize_github_release("zeppe-lin/pkgman", "v6.3", payload)
 
+
+    def test_rejects_release_url_for_another_repository_or_tag(self):
+        payload = self.payload()
+        payload["html_url"] = "https://github.com/zeppe-lin/other/releases/tag/v6.3"
+        with self.assertRaisesRegex(ValueError, "does not match repository and tag"):
+            release.normalize_github_release("zeppe-lin/pkgman", "v6.3", payload)
+
+        payload = self.payload()
+        payload["html_url"] = "https://github.com/zeppe-lin/pkgman/releases/tag/v6.2"
+        with self.assertRaisesRegex(ValueError, "does not match repository and tag"):
+            release.normalize_github_release("zeppe-lin/pkgman", "v6.3", payload)
+
     def test_rejects_draft_or_empty_release(self):
         payload = self.payload()
         payload["draft"] = True
