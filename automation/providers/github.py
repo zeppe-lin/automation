@@ -142,3 +142,10 @@ def envelope_from_repository_dispatch(payload):
     if not isinstance(client_payload, dict):
         raise ValueError("GitHub repository dispatch has no client payload")
     return validate_dispatched_envelope(client_payload.get("envelope"))
+
+
+def clone_url(repository):
+    """Return the canonical public Git URL for one admitted GitHub repository."""
+
+    validate_repository(repository)
+    return f"https://github.com/{repository}.git"
