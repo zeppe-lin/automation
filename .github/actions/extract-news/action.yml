@@ -22,9 +22,6 @@ runs:
         RELEASE_TAG: ${{ inputs.tag }}
         NEWS_PATH: ${{ inputs.news }}
         OUTPUT_PATH: ${{ inputs.output }}
-      run: |
-        set -euo pipefail
-        python3 "$GITHUB_ACTION_PATH/extract-news.py" \
-          "$RELEASE_TAG" \
-          "$NEWS_PATH" \
-          "$OUTPUT_PATH"
+      run: >-
+        python3 "$GITHUB_ACTION_PATH/../../../libexec/extract-news.py"
+        "$RELEASE_TAG" "$NEWS_PATH" "$OUTPUT_PATH"

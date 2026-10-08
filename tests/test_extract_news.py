@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / ".github" / "actions" / "extract-news" / "extract-news.py"
+SCRIPT = ROOT / "libexec" / "extract-news.py"
 
 
 class ExtractNewsTest(unittest.TestCase):
