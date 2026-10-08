@@ -89,11 +89,62 @@ class PushPipelineIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(requirements[0]["requirements"], ["system-news"])
 
+
+    def test_ref_lifecycle_events_render_push_level_irc_artifacts(self):
+        branch_tip = self.repo.commit("feature: branch tip")
+        tag = self.repo.run("tag", "-a", "v1.0", "-m", "v1.0")
+        tag_oid = self.repo.run("rev-parse", "refs/tags/v1.0").stdout.strip()
+        zero = "0" * 40
+
+        cases = [
+            ("refs/heads/feature", branch_tip, zero, "branch deleted"),
+            ("refs/tags/v1.0", zero, tag_oid, "tag created"),
+            ("refs/tags/v1.0", tag_oid, zero, "tag deleted"),
+        ]
+        for index, (ref, before, after, expected) in enumerate(cases):
+            event = self.root / f"event-{index}.json"
+            output = self.root / f"prepared-{index}"
+            envelope = self.envelope(before, after)
+            envelope["ref"] = ref
+            event.write_text(json.dumps(envelope), encoding="utf-8")
+            result = subprocess.run(
+                [str(PREPARE), str(self.repo.path), str(event), str(output)],
+                check=False, capture_output=True, text=True,
+            )
+            with self.subTest(ref=ref, before=before, after=after):
+                self.assertEqual(result.returncode, 0, result.stderr)
+                manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+                self.assertEqual(manifest["commits"], [])
+                self.assertTrue(manifest["routing"]["irc"])
+                self.assertIn(expected, (output / "irc.txt").read_text(encoding="utf-8"))
+                plan = json.loads((output / "delivery-plan.json").read_text(encoding="utf-8"))
+                self.assertEqual(len(plan["deliveries"]["irc"]), 1)
+
+    def test_force_rewind_without_new_commits_still_renders_irc(self):
+        older = self.repo.commit("ordinary: older")
+        newer = self.repo.commit("ordinary: newer")
+        result, output = self.prepare(newer, older)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        self.assertTrue(manifest["forced"])
+        self.assertEqual(manifest["commits"], [])
+        irc = (output / "irc.txt").read_text(encoding="utf-8")
+        self.assertIn("[force-push]", irc)
+        self.assertIn("branch rewritten", irc)
+
     def test_policy_failure_stops_before_rendering(self):
         after = self.repo.commit("[breaking] api: invalid unclassified migration")
         result, output = self.prepare(self.base, after)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must be combined with [news]", result.stderr)
+        self.assertFalse((output / "manifest.json").exists())
+
+
+    def test_unknown_prefix_cannot_hide_maintained_event_tag(self):
+        after = self.repo.commit("[RFC][news] service: hidden operator action")
+        result, output = self.prepare(self.base, after)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must precede unknown bracket prefixes", result.stderr)
         self.assertFalse((output / "manifest.json").exists())
 
     def test_obsolete_notify_stops_before_rendering(self):

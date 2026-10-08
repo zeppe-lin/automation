@@ -183,6 +183,65 @@ class PushDeliveryEndToEndTest(unittest.TestCase):
         self.assertIn("Action: restart service", body)
         self.assertIn(tagged, body)
 
+
+    def test_irc_disconnect_after_privmsg_remains_uncertain_until_explicit_replay(self):
+        after = self.repo.commit("ordinary: IRC uncertainty barrier")
+        output = self.prepare(after)
+
+        server = IRCServer(disconnect_after_privmsg=1).start()
+        try:
+            env = os.environ.copy()
+            env.update({
+                "AUTOMATION_STATE_REPOSITORY": str(self.state),
+                "AUTOMATION_RUN_ID": "push-irc-uncertain",
+                "AUTOMATION_RUN_ATTEMPT": "1",
+                "IRC_HOST": "localhost",
+                "IRC_PORT": str(server.port),
+                "IRC_CHANNEL": "#zeppe-lin-test",
+                "IRC_NICK": "zpln-test",
+                "IRC_SASL_USERNAME": "tester",
+                "IRC_SASL_PASSWORD": "synthetic-password",
+                "AUTOMATION_CA_FILE": str(CERT),
+            })
+            first = subprocess.run(
+                [str(DELIVER), str(output), "irc"],
+                env=env, check=False, capture_output=True, text=True,
+            )
+            self.assertNotEqual(first.returncode, 0)
+        finally:
+            server.close()
+
+        self.assertEqual(len(server.messages), 1)
+        refs = self.state_refs()
+        self.assertTrue(any("/irc/push/template-2/attempts/" in ref for ref in refs))
+        self.assertFalse(any("/irc/push/template-2/delivered" in ref for ref in refs))
+
+        blocked_env = env.copy()
+        blocked_env["IRC_PORT"] = "1"
+        blocked_env["AUTOMATION_RUN_ID"] = "push-irc-blocked"
+        blocked = subprocess.run(
+            [str(DELIVER), str(output), "irc"],
+            env=blocked_env, check=False, capture_output=True, text=True,
+        )
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("unresolved prior delivery attempt", blocked.stderr)
+
+        replay_server = IRCServer().start()
+        try:
+            replay_env = env.copy()
+            replay_env["IRC_PORT"] = str(replay_server.port)
+            replay_env["AUTOMATION_RUN_ID"] = "push-irc-replay"
+            replay = subprocess.run(
+                [str(DELIVER), str(output), "irc", "--force"],
+                env=replay_env, check=False, capture_output=True, text=True,
+            )
+            self.assertEqual(replay.returncode, 0, replay.stderr)
+        finally:
+            replay_server.close()
+
+        self.assertEqual(len(replay_server.messages), 1)
+        self.assertTrue(any("/irc/push/template-2/delivered" in ref for ref in self.state_refs()))
+
     def test_irc_push_summary_uses_real_tls_sasl_and_is_duplicate_guarded(self):
         after = self.repo.commit("ordinary: visible on IRC")
         output = self.prepare(after)

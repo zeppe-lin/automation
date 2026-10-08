@@ -109,7 +109,7 @@ class GitHubPushPreparationIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(manifest["change"], "delete")
         self.assertEqual(manifest["commits"], [])
-        self.assertFalse((output / "irc.txt").exists())
+        self.assertIn("branch deleted", (output / "irc.txt").read_text(encoding="utf-8"))
 
     def test_new_branch_and_tag_events_use_real_remote_objects(self):
         self.work.checkout("-b", "feature")
@@ -123,11 +123,12 @@ class GitHubPushPreparationIntegrationTest(unittest.TestCase):
 
         tag_oid = self.work.tag("v1.0", annotated=True)
         self.work.run("push", "-q", "origin", "refs/tags/v1.0")
-        tag, _ = self.prepare(
+        tag, tag_output = self.prepare(
             self.github_push("0" * 40, tag_oid, "refs/tags/v1.0"), "tag-create"
         )
         self.assertEqual((tag["ref_kind"], tag["change"]), ("tag", "create"))
         self.assertEqual(tag["commits"], [])
+        self.assertIn("tag created", (tag_output / "irc.txt").read_text(encoding="utf-8"))
 
     def test_large_push_is_not_bounded_by_github_commits_array(self):
         commits = [self.work.commit(f"bulk: {index}") for index in range(40)]
