@@ -61,6 +61,15 @@ class PushPolicyTest(unittest.TestCase):
         self.assertEqual(tags, [])
         self.assertEqual(summary, "[RFC] proposal: discuss")
 
+
+    def test_unknown_prefix_cannot_hide_maintained_or_retired_tags(self):
+        with self.assertRaisesRegex(PolicyError, "must precede unknown"):
+            classify_subject("[RFC][news] service: operator action")
+        with self.assertRaisesRegex(PolicyError, "obsolete"):
+            classify_subject("[RFC][notify] package: removed")
+        with self.assertRaisesRegex(PolicyError, "lowercase"):
+            classify_subject("[RFC][News] service: operator action")
+
     def test_breaking_route_requires_release_note_review(self):
         destinations, requirements = route(["news", "breaking"])
         self.assertIn("mail-user", destinations)

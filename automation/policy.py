@@ -18,23 +18,40 @@ class PolicyError(ValueError):
 
 
 def classify_subject(subject):
+    # Scan the complete leading bracket run before deciding where maintained
+    # event tags stop. Unknown human prefixes remain permitted, but they must
+    # not be able to hide a maintained or retired automation tag behind them.
+    tokens = []
+    offset = 0
     rest = subject
-    tags = []
     while rest.startswith("["):
         match = LEADING_TAG_RE.match(rest)
         if not match:
             break
         token = match.group(1)
+        tokens.append((token, offset, offset + match.end()))
+        offset += match.end()
+        rest = rest[match.end():]
+
+    for token, _, _ in tokens:
         lower = token.lower()
         if lower == "notify":
             raise PolicyError("[notify] is obsolete and invalid for new commits")
-        if lower not in TAG_INDEX:
-            # The Codebook does not yet declare arbitrary bracket prefixes invalid.
-            break
-        if token != lower:
+        if lower in TAG_INDEX and token != lower:
             raise PolicyError(f"event tag must use exact lowercase spelling: [{token}]")
+
+    tags = []
+    consumed = 0
+    saw_unknown = False
+    for token, _, end in tokens:
+        lower = token.lower()
+        if lower not in TAG_INDEX:
+            saw_unknown = True
+            continue
+        if saw_unknown:
+            raise PolicyError("maintained event tags must precede unknown bracket prefixes")
         tags.append(lower)
-        rest = rest[match.end():]
+        consumed = end
 
     if len(tags) != len(set(tags)):
         raise PolicyError("event tag is repeated")
@@ -44,7 +61,8 @@ def classify_subject(subject):
     if "breaking" in tags and "news" not in tags:
         raise PolicyError("[breaking] must be combined with [news]")
 
-    return tags, rest.lstrip()
+    summary = subject[consumed:] if tags else subject
+    return tags, summary.lstrip()
 
 
 def recognized_trailers(trailers):
@@ -96,7 +114,7 @@ def classify_push(manifest):
             "mail-user" in commit["classification"]["destinations"]
             for commit in classified["commits"]
         ),
-        "irc": bool(classified["commits"]),
+        "irc": bool(classified["commits"]) or classified.get("before") != classified.get("after"),
         "system-news-checks": sum(
             "system-news" in commit["classification"]["requirements"]
             for commit in classified["commits"]
